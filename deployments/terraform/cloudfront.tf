@@ -8,6 +8,11 @@ data "aws_cloudfront_cache_policy" "caching_disabled" { name = "Managed-CachingD
 
 data "aws_cloudfront_origin_request_policy" "all_viewer" { name = "Managed-AllViewer" }
 
+# Managed policy that forwards all viewer headers EXCEPT Host (includes Authorization)
+data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
+  name = "Managed-AllViewerExceptHostHeader"
+}
+
 # cloudfront.tf
 resource "aws_cloudfront_origin_request_policy" "minimal" {
   name = "qs-minimal-no-headers-cookies-query"
@@ -63,7 +68,7 @@ resource "aws_cloudfront_distribution" "cdn" {
     cached_methods         = ["GET", "HEAD"]
 
     cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.minimal.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
   }
 
   restrictions {
@@ -77,4 +82,7 @@ resource "aws_cloudfront_distribution" "cdn" {
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
+
+  # Attach WAF (defined below)
+  web_acl_id = aws_wafv2_web_acl.cf_acl.arn
 }

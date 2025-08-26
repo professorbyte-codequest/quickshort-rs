@@ -17,6 +17,7 @@ resource "aws_lambda_function" "api" {
       TABLE_NAME    = aws_dynamodb_table.links.name
       CACHE_MAX_AGE = 86400
       PUBLIC_DOMAIN = local.fqdn
+      CREATE_TOKEN  = nonsensitive(data.aws_secretsmanager_secret_version.create_token.secret_string)
     }
   }
 }

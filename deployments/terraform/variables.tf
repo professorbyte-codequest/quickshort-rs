@@ -18,3 +18,10 @@ variable "aws_region_lambda" {
 locals {
   fqdn = "${var.subdomain}.${var.domain_name}"
 }
+
+variable "create_token" {
+  description = "Bearer token required for POST /v1/links (empty disables auth)"
+  type        = string
+  sensitive   = true
+  default     = null
+}
