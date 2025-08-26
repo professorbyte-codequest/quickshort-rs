@@ -1,0 +1,6 @@
+/target
+**/*.zip
+.env
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars

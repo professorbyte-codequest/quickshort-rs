@@ -1,0 +1,17 @@
+name: CI
+on:
+  push: { branches: [ main ] }
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with: { toolchain: stable, override: true }
+      - name: Install cargo-lambda
+        run: cargo install cargo-lambda --locked
+      - name: Build (arm64)
+        run: cargo lambda build --release --arm64
+      - name: Test
+        run: cargo test --all --release
