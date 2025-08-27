@@ -33,3 +33,32 @@ pub fn new_slug(url: &str, created_at: u64, attempt: u32) -> String {
     let digest = hasher.finalize();
     base62(digest.as_bytes(), 6)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::new_slug;
+
+    #[test]
+    fn slug_is_stable_for_same_inputs() {
+        let a = new_slug("https://example.com/x", 1_700_000_000, 1);
+        let b = new_slug("https://example.com/x", 1_700_000_000, 1);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn slug_changes_when_attempt_changes() {
+        let a = new_slug("https://example.com/x", 1_700_000_000, 1);
+        let b = new_slug("https://example.com/x", 1_700_000_000, 2);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn slug_has_reasonable_length() {
+        let s = new_slug(
+            "https://example.com/very/long/path?and=params",
+            1_700_000_000,
+            3,
+        );
+        assert!(s.len() >= 5 && s.len() <= 16, "slug len={}", s.len());
+    }
+}

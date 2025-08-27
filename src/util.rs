@@ -18,3 +18,23 @@ pub fn epoch_now() -> u64 {
         .unwrap()
         .as_secs()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::valid_target;
+
+    #[test]
+    fn accepts_https() {
+        assert!(valid_target("https://example.com"));
+    }
+
+    #[test]
+    fn rejects_javascript_urls() {
+        assert!(!valid_target("javascript:alert(1)"));
+    }
+
+    #[test]
+    fn rejects_empty() {
+        assert!(!valid_target(""));
+    }
+}

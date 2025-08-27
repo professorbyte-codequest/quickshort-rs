@@ -23,6 +23,18 @@ resource "aws_apigatewayv2_route" "resolve" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "list" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /v1/links"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "delete" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "DELETE /v1/links/{slug}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
 resource "aws_apigatewayv2_stage" "prod" {
   api_id      = aws_apigatewayv2_api.http.id
   name        = "$default"

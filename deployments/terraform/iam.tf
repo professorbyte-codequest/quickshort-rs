@@ -26,7 +26,9 @@ resource "aws_iam_policy" "ddb_links_rw" {
         Action = [
           "dynamodb:PutItem",
           "dynamodb:GetItem",
-          "dynamodb:UpdateItem"
+          "dynamodb:UpdateItem",
+          "dynamodb:Scan",
+          "dynamodb:DeleteItem"
         ],
         Resource = aws_dynamodb_table.links.arn
       }
