@@ -6,4 +6,9 @@
 terraform.tfvars
 Cargo.lock
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
+terraform.tfvars
+*.auto.tfvars
+.env
+.env.*
+crash.log
