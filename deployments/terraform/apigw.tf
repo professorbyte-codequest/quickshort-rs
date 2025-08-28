@@ -73,5 +73,11 @@ resource "aws_apigatewayv2_route" "admin_me" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "links_put" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "PUT /v1/links/{slug}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
 output "api_invoke_url" { value = aws_apigatewayv2_api.http.api_endpoint }
 

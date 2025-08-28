@@ -1,128 +1,181 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-  <meta charset="utf-8" />
+<head>
+  <meta charset="utf-8"/>
   <title>QuickShort Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body {
-      font: 14px/1.4 system-ui, sans-serif;
-      max-width: 900px;
-      margin: 40px auto;
-    }
-    table {
-      border-collapse: collapse;
-      width: 100%;
-    }
-    td,
-    th {
-      border: 1px solid #ddd;
-      padding: 8px;
-    }
+    body { font:14px/1.5 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; max-width:1000px; margin:32px auto; padding:0 16px; }
+    header { display:flex; gap:12px; justify-content:space-between; align-items:center; margin-bottom:16px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    input, button { padding:8px; border:1px solid #ccc; border-radius:6px; }
+    button { cursor:pointer; }
+    table { width:100%; border-collapse: collapse; margin-top:12px; }
+    th, td { border-bottom:1px solid #eee; padding:8px; text-align:left; }
+    tr:hover { background:#fafafa; }
+    .right { text-align:right; }
+    .muted { opacity:0.7 }
+    .toast { position:fixed; right:16px; bottom:16px; background:#222; color:#fff; padding:10px 14px; border-radius:8px; opacity:0.95; }
+    .pill { font-size:12px; padding:2px 6px; border:1px solid #ddd; border-radius:999px; }
+    .hide { display:none; }
   </style>
-  <body>
-    <header>
-      <h1>QuickShort Admin</h1>
-      <div>
-        <span id="who" style="margin-right: 12px; opacity: 0.8">…</span>
-        <button id="logout">Logout</button>
+</head>
+<body>
+  <header>
+    <h1>QuickShort Admin</h1>
+    <div class="row">
+      <span id="who" class="muted">…</span>
+      <div id="tokenBox" class="row hide">
+        <label class="muted">Bearer
+          <input id="token" placeholder="paste token" style="width:220px" />
+        </label>
       </div>
-    </header>
-    <p>
-      <label
-        >Token
-        <input id="tok" type="password" size="60" placeholder="Bearer token"
-      /></label>
-      <button id="load">Load</button>
-    </p>
-    <table id="tbl">
-      <thead>
-        <tr>
-          <th>Slug</th>
-          <th>Target</th>
-          <th>Created</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <p><button id="more" hidden>Load more</button></p>
-    <script>
-      const api = location.origin + "/v1";
-      let cursor = null,
-        token = "";
-      const fmt = (s) => new Date(parseInt(s, 10) * 1000).toLocaleString();
-      async function load() {
-        const r = await fetch(
-          `${api}/links` +
-            (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""),
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        if (!r.ok) {
-          alert("Auth failed");
-          return;
-        }
-        const { items, next_cursor } = await r.json();
-        const tb = document.querySelector("#tbl tbody");
-        for (const it of items) {
-          const tr = document.createElement("tr");
-          tr.innerHTML = `<td>${it.slug}</td><td><a href="${
-            it.target
-          }" target="_blank">${it.target}</a></td><td>${fmt(
-            it.created_at
-          )}</td><td><button data-slug="${it.slug}">Delete</button></td>`;
-          tb.appendChild(tr);
-        }
-        cursor = next_cursor || null;
-        document.querySelector("#more").hidden = !cursor;
+      <button id="logout">Logout</button>
+    </div>
+  </header>
+
+  <section class="row" style="align-items:flex-end; margin-bottom:8px;">
+    <div class="row" style="flex:1; align-items:flex-end;">
+      <div>
+        <label>Slug<br/>
+          <input id="slug" placeholder="e.g. docs" />
+        </label>
+      </div>
+      <div style="flex:1; min-width:280px;">
+        <label>Target URL<br/>
+          <input id="target" placeholder="https://example.com/page" style="width:100%;"/>
+        </label>
+      </div>
+      <div>
+        <label>Expires (UTC epoch secs, optional)<br/>
+          <input id="expires" placeholder="e.g. 1767225600" />
+        </label>
+      </div>
+      <button id="create">Create / Update</button>
+    </div>
+    <div class="row" style="align-items:flex-end;">
+      <div>
+        <label>Search<br/>
+          <input id="q" placeholder="slug:abc or text" />
+        </label>
+      </div>
+      <button id="search">Search</button>
+      <span id="count" class="muted pill">0</span>
+    </div>
+  </section>
+
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th>Slug</th>
+        <th>Target</th>
+        <th>Created</th>
+        <th class="right">Visits</th>
+        <th class="right"></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="row" style="justify-content:space-between; margin-top:10px;">
+    <button id="prev" disabled>Prev</button>
+    <div class="muted" id="pageinfo"></div>
+    <button id="next" disabled>Next</button>
+  </div>
+
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <script>
+    const api = '/v1';
+    let nextToken = ''; let prevStack = []; let bearer = '';
+    const H = () => ({ ...(bearer? { 'Authorization': `Bearer ${bearer}` } : {}), 'Content-Type':'application/json' });
+
+    function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 2200); }
+    function fmtDate(s){ if(!s) return ''; const n=Number(s)*1000; return isNaN(n)?'':new Date(n).toISOString().slice(0,19).replace('T',' '); }
+
+    async function me(){ try{ const r=await fetch(`${api}/admin/me`,{credentials:'include'}); if(r.ok){ const j=await r.json(); document.getElementById('who').textContent = `Logged in as ${j.login}`; document.getElementById('tokenBox').classList.add('hide'); } else { document.getElementById('who').textContent=''; document.getElementById('tokenBox').classList.remove('hide'); } }catch{ document.getElementById('tokenBox').classList.remove('hide'); }}
+
+    document.addEventListener('input', (e)=>{ if(e.target && e.target.id==='token'){ bearer = e.target.value.trim(); }});
+
+    async function list(q='', token=''){
+      const url = new URL(`${api}/links`, location.origin);
+      if(q) url.searchParams.set('q', q);
+      if(token) url.searchParams.set('next', token);
+      url.searchParams.set('limit','25');
+      const r = await fetch(url, { credentials:'include' });
+      const j = await r.json();
+      render(j.items||[]);
+      nextToken = j.next || '';
+      document.getElementById('next').disabled = !nextToken;
+      document.getElementById('prev').disabled = prevStack.length===0;
+      document.getElementById('count').textContent = (j.count||0);
+      document.getElementById('pageinfo').textContent = j.next? 'More results available' : '';
+    }
+
+    function render(items){
+      const tb=document.querySelector('#tbl tbody'); tb.innerHTML='';
+      for(const it of items){
+        const tr=document.createElement('tr');
+        tr.innerHTML = `
+          <td><code>${it.slug||''}</code></td>
+          <td>
+            <input value="${it.target||''}" style="width:100%" data-slug="${it.slug}" class="edit-target"/>
+            <div class="muted">Expires: <input value="${it.expires_at||''}" placeholder="epoch" data-slug="${it.slug}" class="edit-expiry" style="width:120px"/></div>
+          </td>
+          <td>${fmtDate(it.created_at)}</td>
+          <td class="right">${it.visits||0}</td>
+          <td class="right">
+            <button data-slug="${it.slug}" class="save">Save</button>
+            <button data-slug="${it.slug}" class="del" style="margin-left:6px;">Delete</button>
+          </td>`;
+        tb.appendChild(tr);
       }
-      document.querySelector("#load").onclick = () => {
-        token = document.querySelector("#tok").value.trim();
-        cursor = null;
-        document.querySelector("#tbl tbody").innerHTML = "";
-        load();
-      };
-      document.querySelector("#more").onclick = () => load();
-      document.querySelector("#tbl").onclick = async (e) => {
-        if (e.target.tagName === "BUTTON") {
-          const slug = e.target.dataset.slug;
-          if (!confirm(`Delete ${slug}?`)) return;
-          const r = await fetch(`${api}/links/${encodeURIComponent(slug)}`, {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (r.status === 204) e.target.closest("tr").remove();
-          else alert("Delete failed");
-        }
-      };
-    </script>
+      tb.querySelectorAll('button.save').forEach(b=>b.onclick=onSave);
+      tb.querySelectorAll('button.del').forEach(b=>b.onclick=onDel);
+    }
 
-    <script>
-      (async function showUser() {
-        try {
-          const r = await fetch("/v1/admin/me", { credentials: "include" });
-          if (r.ok) {
-            const j = await r.json();
-            document.getElementById(
-              "who"
-            ).textContent = `Logged in as ${j.login}`;
-          } else {
-            document.getElementById("who").textContent = "";
-          }
-        } catch {
-          document.getElementById("who").textContent = "";
-        }
-      })();
+    async function onSave(ev){
+      const slug = ev.target.getAttribute('data-slug');
+      const target = document.querySelector(`input.edit-target[data-slug="${slug}"]`).value.trim();
+      const expires = document.querySelector(`input.edit-expiry[data-slug="${slug}"]`).value.trim();
+      const body = { target };
+      if(expires) body.expires_at = Number(expires);
+      const r = await fetch(`${api}/links/${encodeURIComponent(slug)}`, { method:'PUT', headers:H(), body: JSON.stringify(body), credentials:'include' });
+      toast(r.ok? 'Saved' : 'Save failed');
+      const q = document.getElementById('q').value.trim();
+      await list(q, prevStack.pop()||'');
+    }
 
-      document.getElementById("logout").onclick = async () => {
-        try {
-          await fetch("/v1/admin/logout", {
-            method: "POST",
-            credentials: "include",
-          });
-        } finally {
-          // Clear client-side state and force reload
-          location.href = "/admin/";
-        }
-      };
-    </script>
-  </body>
+    async function onDel(ev){
+      const slug = ev.target.getAttribute('data-slug');
+      if(!confirm(`Delete ${slug}?`)) return;
+      const r = await fetch(`${api}/links/${encodeURIComponent(slug)}`, { method:'DELETE', headers:H(), credentials:'include' });
+      toast(r.ok? 'Deleted' : 'Delete failed');
+      const q = document.getElementById('q').value.trim();
+      await list(q, prevStack.pop()||'');
+    }
+
+    document.getElementById('create').onclick = async () => {
+      const slug = document.getElementById('slug').value.trim();
+      const target = document.getElementById('target').value.trim();
+      const expires = document.getElementById('expires').value.trim();
+      const body = { slug, target };
+      if(expires) body.expires_at = Number(expires);
+      const r = await fetch(`${api}/links`, { method:'POST', headers:H(), body: JSON.stringify(body), credentials:'include' });
+      toast(r.ok? 'Created/Updated' : 'Create failed');
+      document.getElementById('slug').value=''; document.getElementById('target').value=''; document.getElementById('expires').value='';
+      const q = document.getElementById('q').value.trim();
+      prevStack=[]; nextToken='';
+      await list(q, '');
+    };
+
+    document.getElementById('search').onclick = async () => { prevStack=[]; nextToken=''; await list(document.getElementById('q').value.trim(), ''); };
+    document.getElementById('next').onclick = async () => { if(nextToken){ prevStack.push(nextToken); await list(document.getElementById('q').value.trim(), nextToken); } };
+    document.getElementById('prev').onclick = async () => { const t=prevStack.pop(); await list(document.getElementById('q').value.trim(), t||''); };
+
+    document.getElementById('logout').onclick = async () => { try{ await fetch(`${api}/admin/logout`, { method:'POST', credentials:'include' }); } finally { location.href='/admin/'; }};
+
+    me(); list('', '');
+  </script>
+</body>
 </html>

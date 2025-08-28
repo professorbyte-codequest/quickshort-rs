@@ -13,7 +13,6 @@ use reqwest::Client;
 use serde_json::json;
 use sha2::Sha256;
 use std::time::{SystemTime, UNIX_EPOCH};
-use url::form_urlencoded;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -43,6 +42,10 @@ pub(crate) fn get_cookie(header: &str, name: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn map_ddb_err<E: std::fmt::Display>(e: E) -> lambda_http::Error {
+    lambda_http::Error::from(format!("ddb: {e}"))
 }
 
 use crate::{
@@ -99,6 +102,49 @@ pub(crate) fn auth_ok(req: &Request, expected: &Option<String>) -> bool {
     true
 }
 
+pub(crate) async fn jwt_cookie_valid(req: &lambda_http::Request) -> bool {
+    let cookie_hdr = req
+        .headers()
+        .get("cookie")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    let token = match get_cookie(cookie_hdr, "qs_admin") {
+        Some(t) if !t.is_empty() => t,
+        _ => return false,
+    };
+    let mut parts = token.split('.');
+    let h_b64 = parts.next().unwrap_or("");
+    let p_b64 = parts.next().unwrap_or("");
+    let s_b64 = parts.next().unwrap_or("");
+    if h_b64.is_empty() || p_b64.is_empty() || s_b64.is_empty() {
+        return false;
+    }
+    let signing_input = format!("{}.{}", h_b64, p_b64);
+    let sig = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(s_b64) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let cfg = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let kmsc = kms::Client::new(&cfg);
+    let key_id = std::env::var("JWT_KMS_KEY_ID").unwrap_or_default();
+    match kmsc
+        .verify()
+        .key_id(key_id)
+        .message(signing_input.as_bytes().to_vec().into())
+        .signature(sig.into())
+        .signing_algorithm(SigningAlgorithmSpec::RsassaPkcs1V15Sha256)
+        .send()
+        .await
+    {
+        Ok(v) => v.signature_valid(),
+        Err(_) => false,
+    }
+}
+
+pub(crate) async fn auth_admin(req: &lambda_http::Request, ctx: &Ctx) -> bool {
+    auth_ok(req, &ctx.create_token) || jwt_cookie_valid(req).await
+}
+
 pub async fn router(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
     let method = req.method().as_str();
     let path = req.uri().path();
@@ -106,6 +152,7 @@ pub async fn router(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
     match (method, path) {
         ("POST", "/v1/links") => create_link(req, ctx).await,
         ("GET", "/v1/links") => list_links(req, ctx).await,
+        ("PUT", p) if p.starts_with("/v1/links/") => update_link(req, ctx).await,
         ("DELETE", p) if p.starts_with("/v1/links/") => delete_link(req, ctx).await,
         ("GET", "/v1/admin/oauth/start") => oauth_start(req, ctx).await,
         ("GET", "/v1/admin/oauth/callback") => oauth_callback(req, ctx).await,
@@ -120,7 +167,7 @@ pub async fn router(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
 }
 
 async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
-    if !auth_ok(&req, &ctx.create_token) {
+    if !auth_admin(&req, ctx).await {
         return Ok(resp_json(401, json!({"error":"unauthorized"})));
     }
 
@@ -281,62 +328,128 @@ async fn resolve_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> 
     Ok(resp)
 }
 
-async fn list_links(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
-    if !auth_ok(&req, &ctx.create_token) {
+async fn update_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
+    if !auth_admin(&req, ctx).await {
         return Ok(resp_json(401, json!({"error":"unauthorized"})));
     }
 
-    // parse ?limit & ?cursor
-    let qs = req.uri().query().unwrap_or("");
-    let params: std::collections::HashMap<String, String> =
-        form_urlencoded::parse(qs.as_bytes()).into_owned().collect();
+    let path = req.uri().path();
+    let slug = path.trim_start_matches("/v1/links/");
+    if slug.is_empty() {
+        return Ok(resp_json(400, json!({"error":"bad_slug"})));
+    }
 
+    let body_bytes = match req.body() {
+        Body::Text(s) => s.as_bytes().to_vec(),
+        Body::Binary(b) => b.clone(),
+        _ => Vec::new(),
+    };
+    let v: serde_json::Value =
+        serde_json::from_slice(&body_bytes).map_err(|_| Error::from("bad json"))?;
+
+    let target = v.get("target").and_then(|x| x.as_str()).unwrap_or("");
+    let expires_at = v.get("expires_at").and_then(|x| x.as_u64());
+
+    if target.is_empty() && expires_at.is_none() {
+        return Ok(resp_json(400, json!({"error":"no_updates"})));
+    }
+
+    let mut expr = String::from("SET ");
+    let mut names = std::collections::HashMap::new();
+    let mut vals = std::collections::HashMap::new();
+    let mut first = true;
+
+    if !target.is_empty() {
+        if !first {
+            expr.push_str(", ");
+        }
+        first = false;
+        expr.push_str("#t = :t");
+        names.insert("#t".to_string(), "target".to_string());
+        vals.insert(":t".to_string(), Av::S(target.to_string()));
+    }
+    if let Some(exp) = expires_at {
+        if !first {
+            expr.push_str(", ");
+        }
+        expr.push_str("#e = :e");
+        names.insert("#e".to_string(), "expires_at".to_string());
+        vals.insert(":e".to_string(), Av::N(exp.to_string()));
+    }
+
+    ctx.ddb
+        .update_item()
+        .table_name(&ctx.table)
+        .key("slug", Av::S(slug.to_string()))
+        .update_expression(expr)
+        .set_expression_attribute_names(Some(names))
+        .set_expression_attribute_values(Some(vals))
+        .return_values(aws_sdk_dynamodb::types::ReturnValue::UpdatedNew)
+        .send()
+        .await
+        .map_err(map_ddb_err)?;
+
+    Ok(resp_json(204, json!({})))
+}
+
+async fn list_links(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
+    let qp = req.uri().query().unwrap_or("");
+    let params: std::collections::HashMap<_, _> = url::form_urlencoded::parse(qp.as_bytes())
+        .into_owned()
+        .collect();
+    let q = params.get("q").cloned().unwrap_or_default();
     let limit: i32 = params
         .get("limit")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(50);
-    let start_key = params.get("cursor").map(|c| {
-        let mut m = std::collections::HashMap::new();
-        m.insert("slug".to_string(), Av::S(c.clone()));
-        m
-    });
+        .unwrap_or(25);
+    let next = params.get("next").cloned();
 
     let mut scan = ctx.ddb.scan().table_name(&ctx.table).limit(limit);
-    if let Some(sk) = start_key {
-        scan = scan.set_exclusive_start_key(Some(sk));
+
+    if let Some(slug_tok) = next {
+        let mut esk = std::collections::HashMap::new();
+        esk.insert("slug".to_string(), Av::S(slug_tok));
+        scan = scan.set_exclusive_start_key(Some(esk));
     }
 
-    let resp = scan
-        .send()
-        .await
-        .map_err(|e| Error::from(format!("ddb scan: {e}")))?;
+    if !q.is_empty() {
+        if let Some(rest) = q.strip_prefix("slug:") {
+            scan = scan
+                .filter_expression("begins_with(#s, :p)")
+                .expression_attribute_names("#s", "slug")
+                .expression_attribute_values(":p", Av::S(rest.to_string()));
+        } else {
+            scan = scan
+                .filter_expression("contains(#t, :p)")
+                .expression_attribute_names("#t", "target")
+                .expression_attribute_values(":p", Av::S(q));
+        }
+    }
 
-    let items: Vec<_> = resp
-        .items()
-        .iter()
-        .map(|it| {
-            json!({
-                "slug": it.get("slug").and_then(|v| v.as_s().ok()).map_or("", |v| v),
-                "target": it.get("target").and_then(|v| v.as_s().ok()).map_or("", |v| v),
-                "created_at": it.get("created_at").and_then(|v| v.as_n().ok()).map_or("0", |v| v),
-            })
+    let resp = scan.send().await.map_err(map_ddb_err)?;
+
+    let items: Vec<_> = resp.items().iter().map(|it| {
+        json!({
+            "slug": it.get("slug").and_then(|v| v.as_s().ok()),
+            "target": it.get("target").and_then(|v| v.as_s().ok()),
+            "created_at": it.get("created_at").and_then(|v| v.as_n().ok()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0),
+            "visits": it.get("visits").and_then(|v| v.as_n().ok()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0),
+            "expires_at": it.get("expires_at").and_then(|v| v.as_n().ok()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0)
         })
-        .collect();
+    }).collect();
 
-    let next_cursor = resp
-        .last_evaluated_key()
-        .and_then(|k| k.get("slug"))
-        .and_then(|v| v.as_s().ok())
-        .cloned();
+    let mut out = json!({ "items": items, "count": resp.count() });
+    if let Some(lek) = resp.last_evaluated_key() {
+        if let Some(Av::S(slug)) = lek.get("slug") {
+            out["next"] = json!(slug);
+        }
+    }
 
-    Ok(resp_json(
-        200,
-        json!({ "items": items, "next_cursor": next_cursor }),
-    ))
+    Ok(resp_json(200, out))
 }
 
 async fn delete_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
-    if !auth_ok(&req, &ctx.create_token) {
+    if !auth_admin(&req, ctx).await {
         return Ok(resp_json(401, json!({"error":"unauthorized"})));
     }
 

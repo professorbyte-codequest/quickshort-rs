@@ -1,5 +1,5 @@
 resource "aws_kms_key" "jwt" {
-  description = "QuickShort Admin JWT signing"
+  description              = "QuickShort Admin JWT signing"
   customer_master_key_spec = "RSA_2048"
   key_usage                = "SIGN_VERIFY"
 }

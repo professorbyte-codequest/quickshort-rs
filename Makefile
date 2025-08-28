@@ -4,7 +4,7 @@ TF_VARS = -var domain_name="codequesthub.io" \
           -var subdomain="go" \
           -var aws_region_lambda="us-west-2"
 
-.PHONY: test tf-plan test-all deploy fmt tf-fmt fmt-all build clean
+.PHONY: test tf-plan test-all deploy fmt tf-fmt fmt-all build clean invalidate-admin invalidate-all
 
 # Run all tests with all features
 test:
@@ -39,3 +39,19 @@ deploy: build
 # Clean up build artifacts
 clean:
 	cargo clean
+
+invalidate-admin:
+	@cd $(TERRAFORM_DIR) && \
+	DISTRIBUTION_ID=$$(terraform output -raw cf_distribution_id) && \
+	echo "Invalidating /admin/* on $$DISTRIBUTION_ID ..." && \
+	aws cloudfront create-invalidation \
+	  --distribution-id $$DISTRIBUTION_ID \
+	  --paths "/admin" "/admin/" "/admin/index.html" "/admin/*"
+
+invalidate-all:
+	@cd $(TERRAFORM_DIR) && \
+	DISTRIBUTION_ID=$$(terraform output -raw cf_distribution_id) && \
+	echo "Invalidating /* on $$DISTRIBUTION_ID ..." && \
+	aws cloudfront create-invalidation \
+	  --distribution-id $$DISTRIBUTION_ID \
+	  --paths "/*"
