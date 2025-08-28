@@ -12,7 +12,7 @@ test:
 
 # Validate and plan Terraform changes
 tf-plan:
-	cd $(TERRAFORM_DIR) && terraform validate && terraform plan $(TF_VARS)
+	cd $(TERRAFORM_DIR) && terraform init && terraform validate && terraform plan $(TF_VARS)
 
 # Run all tests and validate/plan Terraform changes
 test-all: test tf-plan

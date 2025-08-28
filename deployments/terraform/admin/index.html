@@ -1,41 +1,128 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
-<meta charset="utf-8"/>
-<title>QuickShort Admin</title>
-<style>body{font:14px/1.4 system-ui, sans-serif; max-width:900px; margin:40px auto} table{border-collapse:collapse;width:100%} td,th{border:1px solid #ddd;padding:8px}</style>
-<body>
-<h1>QuickShort Admin</h1>
-<p><label>Token <input id="tok" type="password" size="60" placeholder="Bearer token"></label>
-<button id="load">Load</button></p>
-<table id="tbl"><thead><tr><th>Slug</th><th>Target</th><th>Created</th><th></th></tr></thead><tbody></tbody></table>
-<p><button id="more" hidden>Load more</button></p>
-<script>
-const api = location.origin + "/v1";
-let cursor=null, token="";
-const fmt = s => new Date(parseInt(s,10)*1000).toLocaleString();
-async function load(){ 
-  const r = await fetch(`${api}/links` + (cursor?`?cursor=${encodeURIComponent(cursor)}`:""),{headers:{Authorization:`Bearer ${token}`}});
-  if(!r.ok){ alert("Auth failed"); return;}
-  const {items,next_cursor} = await r.json();
-  const tb=document.querySelector("#tbl tbody");
-  for(const it of items){
-    const tr=document.createElement("tr");
-    tr.innerHTML = `<td>${it.slug}</td><td><a href="${it.target}" target="_blank">${it.target}</a></td><td>${fmt(it.created_at)}</td><td><button data-slug="${it.slug}">Delete</button></td>`;
-    tb.appendChild(tr);
-  }
-  cursor = next_cursor || null;
-  document.querySelector("#more").hidden = !cursor;
-}
-document.querySelector("#load").onclick = () => { token=document.querySelector("#tok").value.trim(); cursor=null; document.querySelector("#tbl tbody").innerHTML=""; load(); };
-document.querySelector("#more").onclick = () => load();
-document.querySelector("#tbl").onclick = async (e) => {
-  if(e.target.tagName==="BUTTON"){
-    const slug=e.target.dataset.slug;
-    if(!confirm(`Delete ${slug}?`)) return;
-    const r = await fetch(`${api}/links/${encodeURIComponent(slug)}`,{method:"DELETE", headers:{Authorization:`Bearer ${token}`}});
-    if(r.status===204) e.target.closest("tr").remove(); else alert("Delete failed");
-  }
-};
-</script>
-</body>
+  <meta charset="utf-8" />
+  <title>QuickShort Admin</title>
+  <style>
+    body {
+      font: 14px/1.4 system-ui, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+    td,
+    th {
+      border: 1px solid #ddd;
+      padding: 8px;
+    }
+  </style>
+  <body>
+    <header>
+      <h1>QuickShort Admin</h1>
+      <div>
+        <span id="who" style="margin-right: 12px; opacity: 0.8">…</span>
+        <button id="logout">Logout</button>
+      </div>
+    </header>
+    <p>
+      <label
+        >Token
+        <input id="tok" type="password" size="60" placeholder="Bearer token"
+      /></label>
+      <button id="load">Load</button>
+    </p>
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>Slug</th>
+          <th>Target</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p><button id="more" hidden>Load more</button></p>
+    <script>
+      const api = location.origin + "/v1";
+      let cursor = null,
+        token = "";
+      const fmt = (s) => new Date(parseInt(s, 10) * 1000).toLocaleString();
+      async function load() {
+        const r = await fetch(
+          `${api}/links` +
+            (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""),
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!r.ok) {
+          alert("Auth failed");
+          return;
+        }
+        const { items, next_cursor } = await r.json();
+        const tb = document.querySelector("#tbl tbody");
+        for (const it of items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${it.slug}</td><td><a href="${
+            it.target
+          }" target="_blank">${it.target}</a></td><td>${fmt(
+            it.created_at
+          )}</td><td><button data-slug="${it.slug}">Delete</button></td>`;
+          tb.appendChild(tr);
+        }
+        cursor = next_cursor || null;
+        document.querySelector("#more").hidden = !cursor;
+      }
+      document.querySelector("#load").onclick = () => {
+        token = document.querySelector("#tok").value.trim();
+        cursor = null;
+        document.querySelector("#tbl tbody").innerHTML = "";
+        load();
+      };
+      document.querySelector("#more").onclick = () => load();
+      document.querySelector("#tbl").onclick = async (e) => {
+        if (e.target.tagName === "BUTTON") {
+          const slug = e.target.dataset.slug;
+          if (!confirm(`Delete ${slug}?`)) return;
+          const r = await fetch(`${api}/links/${encodeURIComponent(slug)}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (r.status === 204) e.target.closest("tr").remove();
+          else alert("Delete failed");
+        }
+      };
+    </script>
+
+    <script>
+      (async function showUser() {
+        try {
+          const r = await fetch("/v1/admin/me", { credentials: "include" });
+          if (r.ok) {
+            const j = await r.json();
+            document.getElementById(
+              "who"
+            ).textContent = `Logged in as ${j.login}`;
+          } else {
+            document.getElementById("who").textContent = "";
+          }
+        } catch {
+          document.getElementById("who").textContent = "";
+        }
+      })();
+
+      document.getElementById("logout").onclick = async () => {
+        try {
+          await fetch("/v1/admin/logout", {
+            method: "POST",
+            credentials: "include",
+          });
+        } finally {
+          // Clear client-side state and force reload
+          location.href = "/admin/";
+        }
+      };
+    </script>
+  </body>
 </html>

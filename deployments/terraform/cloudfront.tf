@@ -185,6 +185,12 @@ resource "aws_cloudfront_distribution" "cdn" {
     origin_request_policy_id   = aws_cloudfront_origin_request_policy.minimal.id
     response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
     compress                   = true
+
+    lambda_function_association {
+      event_type   = "viewer-request"
+      include_body = false
+      lambda_arn   = aws_lambda_function.edge_verify.qualified_arn
+    }
   }
 
   restrictions {

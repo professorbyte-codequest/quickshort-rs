@@ -1,0 +1,51 @@
+/* Templated Edge verifier (Node.js 20) — placed at deployments/terraform/edge/admin_jwt_verify.js.tmpl */
+'use strict';
+const crypto = require('crypto');
+
+const PUBLIC_KEY_PEM = `@@PUBLIC_KEY_PEM@@`; // injected by TF
+const COOKIE_NAME = 'qs_admin';
+const ADMIN_PATH = '/admin';
+const AUD = '@@AUD@@';
+const ISS = '@@ISS@@';
+
+function b64uToB64(s){ return s.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(s.length/4)*4,'='); }
+function parseCookies(h){ const out={}; if(!h) return out; h.split(';').forEach(p=>{const i=p.indexOf('='); if(i>0) out[p.slice(0,i).trim()]=p.slice(i+1).trim();}); return out; }
+
+function verifyJwt(jwt){
+  if(!jwt) return false;
+  const parts = jwt.split('.');
+  if(parts.length!==3) return false;
+  const [h,p,s] = parts;
+  try {
+    const header = JSON.parse(Buffer.from(b64uToB64(h),'base64').toString('utf8'));
+    const payload = JSON.parse(Buffer.from(b64uToB64(p),'base64').toString('utf8'));
+    if(payload.aud !== AUD || payload.iss !== ISS) return false;
+    const now = Math.floor(Date.now()/1000);
+    if(typeof payload.exp !== 'number' || payload.exp <= now) return false;
+
+    const verifier = crypto.createVerify('RSA-SHA256');
+    verifier.update(h + '.' + p);
+    verifier.end();
+    const ok = verifier.verify(PUBLIC_KEY_PEM, b64uToB64(s), 'base64');
+    return !!ok;
+  } catch(e){ return false; }
+}
+
+exports.handler = (event, _ctx, cb) => {
+  const req = event.Records[0].cf.request;
+  const uri = req.uri || '/';
+  if(!uri.startsWith(ADMIN_PATH)) return cb(null, req);
+
+  const cookieHeader = (req.headers.cookie && req.headers.cookie[0] && req.headers.cookie[0].value) || '';
+  const cookies = parseCookies(cookieHeader);
+  const ok = verifyJwt(cookies[COOKIE_NAME]);
+  if(!ok){
+    return cb(null, {
+      status: '302',
+      statusDescription: 'Found',
+      headers: { location: [{ key: 'Location', value: '/v1/admin/oauth/start' }], 'cache-control': [{ key: 'Cache-Control', value: 'no-store' }] }
+    });
+  }
+  if(uri === ADMIN_PATH || uri === ADMIN_PATH + '/') req.uri = ADMIN_PATH + '/index.html';
+  return cb(null, req);
+};

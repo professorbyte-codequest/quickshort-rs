@@ -49,5 +49,29 @@ resource "aws_lambda_permission" "allow_apigw" {
   source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
 }
 
+resource "aws_apigatewayv2_route" "oauth_start" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /v1/admin/oauth/start"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "oauth_callback" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /v1/admin/oauth/callback"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_logout" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "POST /v1/admin/logout"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_me" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /v1/admin/me"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
 output "api_invoke_url" { value = aws_apigatewayv2_api.http.api_endpoint }
 
