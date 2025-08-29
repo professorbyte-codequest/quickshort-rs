@@ -108,7 +108,7 @@ pub(crate) async fn jwt_cookie_valid(req: &lambda_http::Request) -> bool {
         .get("cookie")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
-    let token = match get_cookie(cookie_hdr, "qs_admin") {
+    let token = match get_cookie(cookie_hdr, "qs_admin_api") {
         Some(t) if !t.is_empty() => t,
         _ => return false,
     };
@@ -393,6 +393,10 @@ async fn update_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
 }
 
 async fn list_links(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
+    if !auth_admin(&req, ctx).await {
+        return Ok(resp_json(401, json!({"error":"unauthorized"})));
+    }
+
     let qp = req.uri().query().unwrap_or("");
     let params: std::collections::HashMap<_, _> = url::form_urlencoded::parse(qp.as_bytes())
         .into_owned()
@@ -695,14 +699,20 @@ async fn oauth_callback(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error
     let token = format!("{}.{}.{}", h_b64, p_b64, sig_b64);
 
     let domain = ctx.domain.clone();
+
+    let mut builder = Response::builder().status(302);
+    let headers = builder.headers_mut().unwrap();
     let cookie = format!(
         "qs_admin={}; Path=/admin; Max-Age={}; HttpOnly; Secure; SameSite=Lax; Domain={}",
         token, ttl, domain
     );
-
-    let mut builder = Response::builder().status(302);
-    let headers = builder.headers_mut().unwrap();
     headers.append("Set-Cookie", cookie.parse().unwrap()); // session
+    let cookie = format!(
+        "qs_admin_api={}; Path=/v1; Max-Age={}; HttpOnly; Secure; SameSite=Strict; Domain={}",
+        token, ttl, domain
+    );
+    headers.append("Set-Cookie", cookie.parse().unwrap()); // API session
+
     headers.append("Set-Cookie", clear_state.parse().unwrap()); // clear state
     let resp = builder
         .header("Location", "/admin/")
@@ -714,15 +724,22 @@ async fn oauth_callback(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error
 }
 
 async fn admin_logout(_req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
+    let mut builder = Response::builder().status(204);
+    let headers = builder.headers_mut().unwrap();
+
     let cookie = format!(
         "qs_admin=deleted; Path=/admin; Max-Age=0; HttpOnly; Secure; SameSite=Lax; Domain={}",
         ctx.domain
     );
-    let resp = Response::builder()
-        .status(204)
-        .header("Set-Cookie", cookie)
-        .body(Body::Empty)
-        .unwrap();
+    headers.append("Set-Cookie", cookie.parse().unwrap()); // session
+
+    let cookie = format!(
+        "qs_admin_api=deleted; Path=/v1; Max-Age=0; HttpOnly; Secure; SameSite=Srtict; Domain={}",
+        ctx.domain
+    );
+    headers.append("Set-Cookie", cookie.parse().unwrap()); // session
+
+    let resp = builder.body(Body::Empty).unwrap();
     Ok(resp)
 }
 
@@ -732,7 +749,7 @@ async fn admin_me(req: Request, _ctx: &Ctx) -> Result<Response<Body>, Error> {
         .get("cookie")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
-    let token = match get_cookie(cookie_hdr, "qs_admin") {
+    let token = match get_cookie(cookie_hdr, "qs_admin_api") {
         Some(t) if !t.is_empty() => t,
         _ => return Ok(resp_json(401, json!({"error":"unauthorized"}))),
     };
