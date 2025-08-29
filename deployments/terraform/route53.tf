@@ -1,3 +1,5 @@
+data "aws_route53_zone" "zone" { name = var.domain_name }
+
 resource "aws_route53_record" "short_alias" {
   zone_id = data.aws_route53_zone.zone.zone_id
   name    = local.fqdn

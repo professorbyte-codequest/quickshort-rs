@@ -1,4 +1,3 @@
-# ===== deployments/terraform/waf.tf (NEW) =====
 resource "aws_wafv2_web_acl" "cf_acl" {
   provider    = aws.use1
   name        = "quickshort-cf-acl"
