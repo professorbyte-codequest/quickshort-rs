@@ -4,7 +4,7 @@ TF_VARS = -var domain_name="codequesthub.io" \
           -var subdomain="go" \
           -var aws_region_lambda="us-west-2"
 
-.PHONY: test tf-plan test-all deploy fmt tf-fmt fmt-all build clean invalidate-admin invalidate-all
+.PHONY: test tf-plan test-all deploy fmt tf-fmt fmt-all build clean invalidate-admin invalidate-all build-logproc
 
 # Run all tests with all features
 test:
@@ -32,8 +32,11 @@ fmt-all: fmt tf-fmt
 build:
 	cargo lambda build --release --arm64 --output-format zip
 
+build-logproc:
+	cargo lambda build --release --arm64 --output-format zip --bin logproc
+
 # Deploy infrastructure and Lambda function
-deploy: build
+deploy: build build-logproc
 	cd $(TERRAFORM_DIR) && terraform init && terraform apply $(TF_VARS) -auto-approve
 
 # Clean up build artifacts

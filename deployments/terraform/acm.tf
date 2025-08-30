@@ -1,9 +1,9 @@
 # Certificate in us-east-1 for CloudFront
 data "aws_acm_certificate" "cf_cert" {
-  provider          = aws.use1
-  domain            = "${var.subdomain}.${var.domain_name}"
-  most_recent       = true
-  statuses          = ["ISSUED"]
+  provider    = aws.use1
+  domain      = "${var.subdomain}.${var.domain_name}"
+  most_recent = true
+  statuses    = ["ISSUED"]
 }
 
 #resource "aws_route53_record" "cf_cert_validation" {

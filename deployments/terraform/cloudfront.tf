@@ -119,6 +119,31 @@ resource "aws_cloudfront_function" "notfound_redirect" {
   code     = file("${path.module}/cf-functions/notfound_redirect.js")
 }
 
+resource "aws_cloudfront_realtime_log_config" "redirects" {
+  provider      = aws.use1
+  name          = "qs-redirects-rt-json"
+  sampling_rate = 100
+
+
+  fields = [
+    # minimal set for our needs; extend later if you want UA/region stats
+    "timestamp", # epoch millis
+    "cs-host",
+    "cs-uri-stem",
+    "sc-status",
+    "x-edge-result-type"
+  ]
+
+
+  endpoint {
+    stream_type = "Kinesis"
+    kinesis_stream_config {
+      role_arn   = aws_iam_role.cf_logs_role.arn
+      stream_arn = aws_kinesis_stream.cf_rt_logs.arn
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "cdn" {
   enabled         = true
   is_ipv6_enabled = true
@@ -160,6 +185,8 @@ resource "aws_cloudfront_distribution" "cdn" {
       event_type   = "viewer-response"
       function_arn = aws_cloudfront_function.notfound_redirect.arn
     }
+
+    realtime_log_config_arn = aws_cloudfront_realtime_log_config.redirects.arn
   }
 
   ordered_cache_behavior {

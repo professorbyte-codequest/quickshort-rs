@@ -29,3 +29,88 @@ resource "aws_lambda_function" "api" {
     }
   }
 }
+resource "aws_iam_role" "logproc_role" {
+  name = "qs-logproc-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect    = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" },
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_policy" "logproc_policy" {
+  name = "qs-logproc-ddb-kinesis"
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "kinesis:DescribeStream",
+          "kinesis:GetShardIterator",
+          "kinesis:GetRecords",
+          "kinesis:ListShards"
+        ],
+        Resource = aws_kinesis_stream.cf_rt_logs.arn
+      },
+      {
+        Effect   = "Allow",
+        Action   = ["dynamodb:UpdateItem", "dynamodb:DescribeTable"],
+        Resource = aws_dynamodb_table.links.arn
+      },
+      {
+        Effect = "Allow",
+        Action = [
+          "logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "logproc_attach" {
+  role       = aws_iam_role.logproc_role.name
+  policy_arn = aws_iam_policy.logproc_policy.arn
+}
+
+# Path to the built zip produced by `cargo lambda build --arm64 --output-format zip`
+# Expecting it at ../../target/lambda/logproc/bootstrap.zip from this tf dir
+locals { logproc_zip = "../../target/lambda/logproc/bootstrap.zip" }
+
+resource "aws_lambda_function" "logproc" {
+  provider         = aws.use1
+  function_name    = "quickshort_cf_logproc"
+  filename         = local.logproc_zip
+  source_code_hash = filebase64sha256(local.logproc_zip)
+  handler          = "bootstrap"
+  role             = aws_iam_role.logproc_role.arn
+  runtime          = "provided.al2023"
+  architectures    = ["arm64"]
+  timeout          = 30
+  memory_size      = 256
+
+  environment {
+    variables = {
+      TABLE_NAME   = aws_dynamodb_table.links.name
+      TABLE_REGION = var.aws_region_lambda # us-west-2 (write to DDB in west-2)
+      LOG_LEVEL    = "info"
+    }
+  }
+}
+
+
+resource "aws_lambda_event_source_mapping" "kinesis_to_logproc" {
+  provider                           = aws.use1
+  event_source_arn                   = aws_kinesis_stream.cf_rt_logs.arn
+  function_name                      = aws_lambda_function.logproc.arn
+  starting_position                  = "LATEST"
+  batch_size                         = 100
+  maximum_batching_window_in_seconds = 5
+  bisect_batch_on_function_error     = true
+  maximum_retry_attempts             = 3
+  parallelization_factor             = 1
+}
