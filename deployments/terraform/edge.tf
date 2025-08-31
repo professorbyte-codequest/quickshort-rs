@@ -40,3 +40,38 @@ resource "aws_lambda_function" "edge_verify" {
   memory_size   = 128
   timeout       = 1
 }
+
+data "archive_file" "edge_root_rewrite_zip" {
+  type        = "zip"
+  output_path = "${path.module}/edge/edge_root_rewrite.zip"
+  source_file = "${path.module}/edge/origin_rewrite_index/index.js"
+}
+
+resource "aws_lambda_function" "edge_root_rewrite" {
+  provider      = aws.use1
+  function_name = "qs-edge-root-rewrite"
+  role          = aws_iam_role.edge_root_rewrite_role.arn
+  handler       = "index.handler"
+  runtime       = "nodejs20.x"
+  publish       = true
+  timeout       = 3
+  filename      = data.archive_file.edge_root_rewrite_zip.output_path
+}
+
+# Role for Edge Lambda
+resource "aws_iam_role" "edge_root_rewrite_role" {
+  name = "qs-edge-root-rewrite-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect    = "Allow",
+      Principal = { Service = ["lambda.amazonaws.com", "edgelambda.amazonaws.com"] },
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "edge_root_rewrite_basic" {
+  role       = aws_iam_role.edge_root_rewrite_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}

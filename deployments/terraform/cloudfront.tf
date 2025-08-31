@@ -148,6 +148,7 @@ resource "aws_cloudfront_distribution" "cdn" {
   enabled         = true
   is_ipv6_enabled = true
   comment         = "QuickShort for ${local.fqdn}"
+  http_version    = "http2and3"
 
   aliases = [local.fqdn]
 
@@ -169,6 +170,11 @@ resource "aws_cloudfront_distribution" "cdn" {
     origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
   }
 
+  origin {
+    domain_name              = aws_s3_bucket.landing.bucket_regional_domain_name
+    origin_id                = "landing-s3"
+    origin_access_control_id = aws_cloudfront_origin_access_control.landing.id
+  }
 
   default_cache_behavior {
     target_origin_id       = "api-gw-origin"
@@ -187,6 +193,26 @@ resource "aws_cloudfront_distribution" "cdn" {
     }
 
     realtime_log_config_arn = aws_cloudfront_realtime_log_config.redirects.arn
+  }
+
+  ordered_cache_behavior {
+    path_pattern     = "/"
+    target_origin_id = "landing-s3"
+
+    allowed_methods = ["GET", "HEAD"]
+    cached_methods  = ["GET", "HEAD"]
+
+    viewer_protocol_policy = "redirect-to-https"
+
+    # Cache aggressively; it's static
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
+
+    lambda_function_association {
+      event_type   = "origin-request"
+      lambda_arn   = aws_lambda_function.edge_root_rewrite.qualified_arn
+      include_body = false
+    }
   }
 
   ordered_cache_behavior {

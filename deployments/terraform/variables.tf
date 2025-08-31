@@ -25,3 +25,8 @@ variable "create_token" {
   sensitive   = true
   default     = null
 }
+
+variable "alert_email" {
+  description = "Email address to subscribe to the alert SNS topic"
+  type        = string
+}

@@ -37,7 +37,7 @@ build-logproc:
 
 # Deploy infrastructure and Lambda function
 deploy: build build-logproc
-	cd $(TERRAFORM_DIR) && terraform init && terraform apply $(TF_VARS) -auto-approve
+	cd $(TERRAFORM_DIR) terraform init && terraform apply $(TF_VARS) -auto-approve
 
 # Clean up build artifacts
 clean:

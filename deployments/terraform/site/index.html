@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QuickShort — URL shortener for CodeQuestHub</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        margin: 0;
+        color: #0f172a;
+        background: #f8fafc;
+      }
+      .wrap {
+        max-width: 720px;
+        margin: 10vh auto;
+        padding: 0 20px;
+      }
+      h1 {
+        font-size: 2.2rem;
+        margin: 0 0 0.5rem;
+      }
+      p {
+        line-height: 1.6;
+        font-size: 1.05rem;
+      }
+      .cta {
+        margin-top: 1.5rem;
+        display: inline-block;
+        background: #0ea5e9;
+        color: white;
+        padding: 10px 16px;
+        border-radius: 10px;
+        text-decoration: none;
+      }
+      .muted {
+        color: #475569;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>QuickShort</h1>
+      <p class="muted">
+        A fast, Rust-powered URL shortener fronted by CloudFront. This is our
+        minimal landing page.
+      </p>
+      <p>
+        A public preview is coming soon — we’re tuning caching, auth, and costs
+        so we don’t melt our DynamoDB bill.
+      </p>
+      <p>
+        If you’re part of the team, head to the
+        <a class="cta" href="/admin/">Admin Console →</a>
+      </p>
+    </main>
+  </body>
+</html>
