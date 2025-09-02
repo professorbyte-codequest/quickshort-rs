@@ -246,6 +246,19 @@ resource "aws_cloudfront_distribution" "cdn" {
     }
   }
 
+  ordered_cache_behavior {
+    path_pattern           = "auth/*"
+    target_origin_id       = "admin-s3-origin"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.minimal.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
+    compress                   = true
+  }
+
   restrictions {
     geo_restriction {
       restriction_type = "none"

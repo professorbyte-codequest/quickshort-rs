@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Signing you out… – QuickShort</title>
+  <script src="/auth/config.js"></script>
+  <script src="/auth/auth.js"></script>
+  <body
+    style="
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 600px;
+      margin: 4rem auto;
+    "
+  >
+    <h1>Signing you out…</h1>
+    <p>If you are not redirected, <a id="go">click here</a>.</p>
+    <script>
+      (async function () {
+        try {
+          await QSAuth.signOut();
+        } catch (e) {
+          console.error(e);
+        }
+        document
+          .getElementById("go")
+          .addEventListener("click", () => QSAuth.signOut());
+      })();
+    </script>
+  </body>
+</html>

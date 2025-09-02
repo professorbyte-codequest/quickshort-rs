@@ -7,11 +7,15 @@ edition = "2021"
 name = "logproc"
 path = "src/bin/logproc.rs"
 
+[[authorizer]]
+name = "authorizer"
+path = "src/bin/qs_authorizer.rs"
+
 
 [dependencies]
-aws_lambda_events = "0.15"
-lambda_runtime = "0.11"
-lambda_http = "0.9"
+aws_lambda_events = { version = "0.18", default-features = false, features = ["apigw", "kinesis"] }
+lambda_runtime = "0.14"
+lambda_http = "0.17"
 aws-config = "1"
 aws-sdk-dynamodb = "1"
 serde = { version = "1", features = ["derive"] }
@@ -22,6 +26,8 @@ blake3 = "1"
 base62 = "2"
 rand = "0.8"
 http = "1"
+jsonwebtoken = "8"
+once_cell = "1"
 url = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 form_urlencoded = "1.2.2"
@@ -32,6 +38,7 @@ hmac = "0.12.1"
 sha2 = "0.10.9"
 uuid = { version = "1", features = ["v4", "serde", "fast-rng"] }
 urlencoding = "2.1.3"
+serial_test = "3.2.0"
 
 [profile.release]
 lto = true

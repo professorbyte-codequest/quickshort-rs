@@ -1,3 +1,6 @@
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
+use lambda_http::{Body, Response};
 use url::Url;
 
 pub fn valid_target(u: &str) -> bool {
@@ -17,6 +20,24 @@ pub fn epoch_now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs()
+}
+
+pub fn b64u(bytes: &[u8]) -> String {
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+pub fn b64u_to_bytes(s: &str) -> Option<Vec<u8>> {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(s)
+        .ok()
+}
+
+pub fn resp_json(status: u16, v: serde_json::Value) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json")
+        .body(Body::Text(v.to_string()))
+        .unwrap()
 }
 
 #[cfg(test)]

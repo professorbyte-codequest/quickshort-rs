@@ -25,11 +25,6 @@
     <h1>QuickShort Admin</h1>
     <div class="row">
       <span id="who" class="muted">…</span>
-      <div id="tokenBox" class="row hide">
-        <label class="muted">Bearer
-          <input id="token" placeholder="paste token" style="width:220px" />
-        </label>
-      </div>
       <button id="logout">Logout</button>
     </div>
   </header>
@@ -70,6 +65,8 @@
         <th>Slug</th>
         <th>Target</th>
         <th>Created</th>
+        <th>Owner</th>
+        <th>Status</th>
         <th class="right">Visits</th>
         <th class="right"></th>
       </tr>
@@ -87,15 +84,13 @@
 
   <script>
     const api = '/v1';
-    let nextToken = ''; let prevStack = []; let bearer = '';
-    const H = () => ({ ...(bearer? { 'Authorization': `Bearer ${bearer}` } : {}), 'Content-Type':'application/json' });
+    let nextToken = ''; let prevStack = [];
+    const H = () => ({ 'Content-Type':'application/json' });
 
     function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 2200); }
     function fmtDate(s){ if(!s) return ''; const n=Number(s)*1000; return isNaN(n)?'':new Date(n).toISOString().slice(0,19).replace('T',' '); }
 
-    async function me(){ try{ const r=await fetch(`${api}/admin/me`,{credentials:'include'}); if(r.ok){ const j=await r.json(); document.getElementById('who').textContent = `Logged in as ${j.login}`; document.getElementById('tokenBox').classList.add('hide'); } else { document.getElementById('who').textContent=''; document.getElementById('tokenBox').classList.remove('hide'); } }catch{ document.getElementById('tokenBox').classList.remove('hide'); }}
-
-    document.addEventListener('input', (e)=>{ if(e.target && e.target.id==='token'){ bearer = e.target.value.trim(); }});
+    async function me(){ try{ const r=await fetch(`${api}/admin/me`,{credentials:'include'}); if(r.ok){ const j=await r.json(); document.getElementById('who').textContent = `Logged in as ${j.login}` } else { document.getElementById('who').textContent=''; } }catch{  }}
 
     async function list(q='', token=''){
       const url = new URL(`${api}/links`, location.origin);
@@ -123,7 +118,10 @@
             <div class="muted">Expires: <input value="${it.expires_at||''}" placeholder="epoch" data-slug="${it.slug}" class="edit-expiry" style="width:120px"/></div>
           </td>
           <td>${fmtDate(it.created_at)}</td>
+          <td class="muted">${it.owner_id||''}</td>
+          <td class="muted">${it.status||''}</td>
           <td class="right">${it.visits||0}</td>
+
           <td class="right">
             <button data-slug="${it.slug}" class="save">Save</button>
             <button data-slug="${it.slug}" class="del" style="margin-left:6px;">Delete</button>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in – QuickShort</title>
+  <script src="/auth/config.js"></script>
+  <!-- auth helpers -->
+  <?/* keep this inline or host as /auth/auth.js */?>
+  <script src="/auth/auth.js"></script>
+  <body
+    style="
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 600px;
+      margin: 5rem auto;
+    "
+  >
+    <h1>Sign in</h1>
+    <p>Use your Google account to continue.</p>
+    <button id="google" style="padding: 0.75rem 1rem; font-size: 1rem">
+      Continue with Google
+    </button>
+    <p style="margin-top: 2rem; color: #666">
+      Admin?
+      <a href="/v1/admin/oauth/login">Sign in here</a>
+    </p>
+
+    <script>
+      document.getElementById("google").addEventListener("click", async () => {
+        try {
+          const url = await QSAuth.buildAuthorizeUrl();
+          location.href = url; // redirect to Hosted UI
+        } catch (e) {
+          alert(e.message || e);
+        }
+      });
+    </script>
+  </body>
+</html>

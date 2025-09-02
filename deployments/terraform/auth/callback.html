@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Signing you in… – QuickShort</title>
+  <script src="/auth/config.js"></script>
+  <script src="/auth/auth.js"></script>
+  <body
+    style="
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 600px;
+      margin: 4rem auto;
+    "
+  >
+    <h1>Signing you in…</h1>
+    <pre id="msg" style="white-space: pre-wrap; color: #555"></pre>
+    <script>
+      (async function () {
+        const el = document.getElementById("msg");
+        try {
+          const qp = new URLSearchParams(location.search);
+          const code = qp.get("code");
+          const state = qp.get("state");
+          const expectedState = sessionStorage.getItem("qs_oauth_state");
+          if (!code) throw new Error("Missing code");
+          if (!state || !expectedState || state !== expectedState)
+            throw new Error("State mismatch");
+          const tok = await QSAuth.exchangeCode(code);
+          el.textContent = "Success! Redirecting…";
+          el.innerHTML += '<a href="/v1/admin/me">here</a><br/>';
+          // Where to land post-login; adjust as needed
+          setTimeout(() => location.replace("/"), 500);
+        } catch (e) {
+          el.textContent = "Sign-in failed: " + (e.message || e);
+        }
+      })();
+    </script>
+  </body>
+</html>

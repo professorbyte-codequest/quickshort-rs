@@ -26,7 +26,7 @@ pub fn new_slug(url: &str, created_at: u64, attempt: u32) -> String {
     hasher.update(url.as_bytes());
     hasher.update(&created_at.to_be_bytes());
     hasher.update(&attempt.to_be_bytes());
-    let mut rng = StdRng::seed_from_u64((created_at as u64) ^ (attempt as u64) ^ 0xA5A5);
+    let mut rng = StdRng::seed_from_u64(created_at ^ (attempt as u64) ^ 0xA5A5);
     let mut salt = [0u8; 8];
     rng.fill_bytes(&mut salt);
     hasher.update(&salt);

@@ -12,7 +12,7 @@ resource "aws_sns_topic" "alerts" {
 
 resource "aws_sns_topic" "alerts_use1" {
   provider = aws.use1
-  name = "${local.project}-alerts"
+  name     = "${local.project}-alerts"
 }
 
 resource "aws_sns_topic_policy" "alerts" {
@@ -344,56 +344,56 @@ resource "aws_cloudwatch_dashboard" "main" {
         }
       },
       {
-        "type": "metric",
-        "x": 0, "y": 8, "width": 12, "height": 6,
-        "properties": {
-          "title": "LogProc — Errors & IteratorAge",
-          "region": "us-east-1",
-          "metrics": [
-            ["AWS/Lambda", "Errors", "FunctionName", "quickshort_cf_logproc", { "stat": "Sum" }],
-            [".", "IteratorAge", ".", ".", { "stat": "Maximum" }]
+        "type" : "metric",
+        "x" : 0, "y" : 8, "width" : 12, "height" : 6,
+        "properties" : {
+          "title" : "LogProc — Errors & IteratorAge",
+          "region" : "us-east-1",
+          "metrics" : [
+            ["AWS/Lambda", "Errors", "FunctionName", "quickshort_cf_logproc", { "stat" : "Sum" }],
+            [".", "IteratorAge", ".", ".", { "stat" : "Maximum" }]
           ],
-          "period": 60
+          "period" : 60
         }
       },
       {
-        "type": "metric",
-        "x": 12, "y": 8, "width": 12, "height": 6,
-        "properties": {
-          "title": "Kinesis — Incoming & Throughput Exceeded",
-          "region": "us-east-1",
-          "metrics": [
+        "type" : "metric",
+        "x" : 12, "y" : 8, "width" : 12, "height" : 6,
+        "properties" : {
+          "title" : "Kinesis — Incoming & Throughput Exceeded",
+          "region" : "us-east-1",
+          "metrics" : [
             ["AWS/Kinesis", "IncomingRecords", "StreamName", jsonencode(aws_kinesis_stream.cf_rt_logs.name)],
-            [".", "ReadProvisionedThroughputExceeded", ".", ".", { "stat": "Sum" }],
-            [".", "WriteProvisionedThroughputExceeded", ".", ".", { "stat": "Sum" }]
+            [".", "ReadProvisionedThroughputExceeded", ".", ".", { "stat" : "Sum" }],
+            [".", "WriteProvisionedThroughputExceeded", ".", ".", { "stat" : "Sum" }]
           ],
-          "period": 60
+          "period" : 60
         }
       },
       {
-        "type": "metric",
-        "x": 0, "y": 14, "width": 12, "height": 6,
-        "properties": {
-          "title": "DynamoDB — Throttles & SystemErrors",
-          "region": jsonencode(var.aws_region_lambda),
-          "metrics": [
-            ["AWS/DynamoDB", "ThrottledRequests", "TableName", jsonencode(aws_dynamodb_table.links.name), { "stat": "Sum" }],
-            [".", "SystemErrors", ".", ".", { "stat": "Sum" }]
+        "type" : "metric",
+        "x" : 0, "y" : 14, "width" : 12, "height" : 6,
+        "properties" : {
+          "title" : "DynamoDB — Throttles & SystemErrors",
+          "region" : jsonencode(var.aws_region_lambda),
+          "metrics" : [
+            ["AWS/DynamoDB", "ThrottledRequests", "TableName", jsonencode(aws_dynamodb_table.links.name), { "stat" : "Sum" }],
+            [".", "SystemErrors", ".", ".", { "stat" : "Sum" }]
           ],
-          "period": 60
+          "period" : 60
         }
       },
       {
-        "type": "metric",
-        "x": 12, "y": 14, "width": 12, "height": 6,
-        "properties": {
-          "title": "CloudFront & WAF",
-          "region": "us-east-1",
-          "metrics": [
-            ["AWS/CloudFront", "5xxErrorRate", "DistributionId", jsonencode(aws_cloudfront_distribution.cdn.id), "Region", "Global", { "stat": "Average" }],
-            ["AWS/WAFV2", "BlockedRequests", "WebACL", jsonencode(aws_wafv2_web_acl.cf_acl.name), "Region", "Global", "Rule", "ALL", { "stat": "Sum" }]
+        "type" : "metric",
+        "x" : 12, "y" : 14, "width" : 12, "height" : 6,
+        "properties" : {
+          "title" : "CloudFront & WAF",
+          "region" : "us-east-1",
+          "metrics" : [
+            ["AWS/CloudFront", "5xxErrorRate", "DistributionId", jsonencode(aws_cloudfront_distribution.cdn.id), "Region", "Global", { "stat" : "Average" }],
+            ["AWS/WAFV2", "BlockedRequests", "WebACL", jsonencode(aws_wafv2_web_acl.cf_acl.name), "Region", "Global", "Rule", "ALL", { "stat" : "Sum" }]
           ],
-          "period": 60
+          "period" : 60
         }
       }
     ]

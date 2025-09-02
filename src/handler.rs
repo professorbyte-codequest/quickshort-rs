@@ -6,32 +6,14 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use ddb::types::AttributeValue as Av;
 use hmac::{Hmac, Mac};
-use kms::types::SigningAlgorithmSpec;
 use lambda_http::{Body, Error, Request, Response};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Client;
 use serde_json::json;
 use sha2::Sha256;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::borrow::Cow;
 
 type HmacSha256 = Hmac<Sha256>;
-
-fn b64u(bytes: &[u8]) -> String {
-    URL_SAFE_NO_PAD.encode(bytes)
-}
-
-fn b64u_to_bytes(s: &str) -> Option<Vec<u8>> {
-    base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(s)
-        .ok()
-}
-
-fn epoch() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
 
 pub(crate) fn get_cookie(header: &str, name: &str) -> Option<String> {
     // Ex: header = "a=1; qs_state=XYZ; other=2"
@@ -48,10 +30,12 @@ fn map_ddb_err<E: std::fmt::Display>(e: E) -> lambda_http::Error {
     lambda_http::Error::from(format!("ddb: {e}"))
 }
 
+use crate::auth::CallerSource;
 use crate::{
+    auth::{caller_id, require_auth, Caller},
     id::new_slug,
     model::{CreateReq, CreateResp},
-    util::{epoch_now, valid_target},
+    util::{b64u, epoch_now, resp_json, valid_target},
 };
 
 #[derive(Clone)]
@@ -59,8 +43,7 @@ pub struct Ctx {
     pub ddb: ddb::Client,
     pub table: String,
     pub cache_max_age: u64,
-    pub domain: String,               // e.g., go.codequesthub.io
-    pub create_token: Option<String>, // bearer token for admin/control plane
+    pub domain: String, // e.g., go.codequesthub.io
 }
 
 impl Ctx {
@@ -74,75 +57,13 @@ impl Ctx {
             .unwrap_or(86400);
         let domain =
             std::env::var("PUBLIC_DOMAIN").unwrap_or_else(|_| "go.codequesthub.io".to_string());
-        let create_token = std::env::var("CREATE_TOKEN").ok().filter(|s| !s.is_empty());
         Self {
             ddb,
             table,
             cache_max_age,
             domain,
-            create_token,
         }
     }
-}
-
-/// Lightweight auth helper: if CREATE_TOKEN is set, require `Authorization: Bearer <token>`
-pub(crate) fn auth_ok(req: &Request, expected: &Option<String>) -> bool {
-    if let Some(exp) = expected {
-        if let Some(h) = req
-            .headers()
-            .get("authorization")
-            .and_then(|h| h.to_str().ok())
-        {
-            if let Some(b) = h.strip_prefix("Bearer ") {
-                return b == exp;
-            }
-        }
-        return false;
-    }
-    true
-}
-
-pub(crate) async fn jwt_cookie_valid(req: &lambda_http::Request) -> bool {
-    let cookie_hdr = req
-        .headers()
-        .get("cookie")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-    let token = match get_cookie(cookie_hdr, "qs_admin_api") {
-        Some(t) if !t.is_empty() => t,
-        _ => return false,
-    };
-    let mut parts = token.split('.');
-    let h_b64 = parts.next().unwrap_or("");
-    let p_b64 = parts.next().unwrap_or("");
-    let s_b64 = parts.next().unwrap_or("");
-    if h_b64.is_empty() || p_b64.is_empty() || s_b64.is_empty() {
-        return false;
-    }
-    let signing_input = format!("{}.{}", h_b64, p_b64);
-    let sig = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(s_b64) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let cfg = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-    let kmsc = kms::Client::new(&cfg);
-    let key_id = std::env::var("JWT_KMS_KEY_ID").unwrap_or_default();
-    match kmsc
-        .verify()
-        .key_id(key_id)
-        .message(signing_input.as_bytes().to_vec().into())
-        .signature(sig.into())
-        .signing_algorithm(SigningAlgorithmSpec::RsassaPkcs1V15Sha256)
-        .send()
-        .await
-    {
-        Ok(v) => v.signature_valid(),
-        Err(_) => false,
-    }
-}
-
-pub(crate) async fn auth_admin(req: &lambda_http::Request, ctx: &Ctx) -> bool {
-    auth_ok(req, &ctx.create_token) || jwt_cookie_valid(req).await
 }
 
 pub async fn router(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
@@ -167,9 +88,12 @@ pub async fn router(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
 }
 
 async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
-    if !auth_admin(&req, ctx).await {
-        return Ok(resp_json(401, json!({"error":"unauthorized"})));
-    }
+    let caller = match require_auth(&req).await {
+        Ok(c) => c,
+        Err(_) => {
+            return json_err(401, "unauthorized", "Requires authentication");
+        }
+    };
 
     let body_bytes = match req.body() {
         Body::Text(s) => s.as_bytes().to_vec(),
@@ -191,7 +115,16 @@ async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
         None => loop {
             attempt += 1;
             let candidate = new_slug(&payload.target, now, attempt);
-            if try_put(ctx, &candidate, &payload.target, now, payload.expires_at).await? {
+            if try_put(
+                ctx,
+                &candidate,
+                &payload.target,
+                now,
+                payload.expires_at,
+                &caller,
+            )
+            .await?
+            {
                 break candidate;
             }
             if attempt > 6 {
@@ -200,10 +133,18 @@ async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
         },
     };
 
-    if payload.slug.is_some() {
-        if !try_put(ctx, &slug, &payload.target, now, payload.expires_at).await? {
-            return Ok(resp_json(409, json!({"error":"slug exists"})));
-        }
+    if payload.slug.is_some()
+        && !try_put(
+            ctx,
+            &slug,
+            &payload.target,
+            now,
+            payload.expires_at,
+            &caller,
+        )
+        .await?
+    {
+        return Ok(resp_json(409, json!({"error":"slug exists"})));
     }
 
     let short = format!("https://{}/{}", ctx.domain, slug);
@@ -222,6 +163,7 @@ async fn try_put(
     target: &str,
     created_at: u64,
     expires_at: Option<u64>,
+    caller: &Caller,
 ) -> Result<bool, Error> {
     let mut item = std::collections::HashMap::new();
     item.insert("slug".into(), Av::S(slug.to_string()));
@@ -231,13 +173,16 @@ async fn try_put(
         item.insert("expires_at".into(), Av::N(ttl.to_string()));
     }
     item.insert("visits".into(), Av::N("0".into()));
+    item.insert("status".into(), Av::S("active".into()));
+    item.insert("owner_id".into(), Av::S(caller.user_id.clone()));
 
     let r = ctx
         .ddb
         .put_item()
         .table_name(&ctx.table)
         .set_item(Some(item))
-        .condition_expression("attribute_not_exists(slug)")
+        .condition_expression("attribute_not_exists(#s)")
+        .expression_attribute_names("#s", "slug")
         .send()
         .await;
 
@@ -247,7 +192,7 @@ async fn try_put(
             if e.code() == Some("ConditionalCheckFailedException") {
                 return Ok(false);
             }
-            Err(Error::from(format!("ddb put error: {e}")))
+            Err(Error::from(format!("ddb put error: {:?}", e)))
         }
     }
 }
@@ -328,15 +273,62 @@ async fn resolve_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> 
     Ok(resp)
 }
 
+pub fn json_err(
+    status: u16,
+    code: &'static str,
+    message: impl Into<Cow<'static, str>>,
+) -> Result<lambda_http::Response<lambda_http::Body>, lambda_http::Error> {
+    use lambda_http::{Body, Response};
+    let payload = serde_json::json!({
+    "error": code,
+    "message": message.into(),
+    });
+    let body = serde_json::to_vec(&payload).map_err(|e| lambda_http::Error::from(e.to_string()))?;
+    Response::builder()
+        .status(status)
+        .header("content-type", "application/json")
+        .body(Body::Binary(body))
+        .map_err(|e| lambda_http::Error::from(format!("resp: {e}")))
+}
+
 async fn update_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
-    if !auth_admin(&req, ctx).await {
-        return Ok(resp_json(401, json!({"error":"unauthorized"})));
-    }
+    let caller = match require_auth(&req).await {
+        Ok(c) => c,
+        Err(_) => {
+            // Swallow auth errors and return 404 to avoid leaking existence
+            return json_err(404, "not_found", "Slug not found");
+        }
+    };
 
     let path = req.uri().path();
     let slug = path.trim_start_matches("/v1/links/");
     if slug.is_empty() {
         return Ok(resp_json(400, json!({"error":"bad_slug"})));
+    }
+
+    if !caller.is_admin {
+        // Fetch current item
+        let item = ctx
+            .ddb
+            .get_item()
+            .table_name(&ctx.table)
+            .key("slug", Av::S(slug.to_string()))
+            .send()
+            .await
+            .map_err(|e| lambda_http::Error::from(format!("ddb get: {e}")))?
+            .item;
+
+        let Some(item) = item else {
+            return json_err(404, "not_found", "Slug not found");
+        };
+        let defaut_owner = "system".to_string();
+        let owner = item
+            .get("owner_id")
+            .and_then(|v| v.as_s().ok())
+            .unwrap_or(&defaut_owner);
+        if owner != &caller.user_id {
+            return json_err(404, "not_found", "Slug not found");
+        }
     }
 
     let body_bytes = match req.body() {
@@ -393,22 +385,61 @@ async fn update_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
 }
 
 async fn list_links(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
-    if !auth_admin(&req, ctx).await {
-        return Ok(resp_json(401, json!({"error":"unauthorized"})));
-    }
+    let caller = match require_auth(&req).await {
+        Ok(c) => c,
+        Err(_) => {
+            return json_err(401, "unauthorized", "Requires authentication");
+        }
+    };
 
     let qp = req.uri().query().unwrap_or("");
     let params: std::collections::HashMap<_, _> = url::form_urlencoded::parse(qp.as_bytes())
         .into_owned()
         .collect();
     let q = params.get("q").cloned().unwrap_or_default();
+    let mine = params
+        .get("mine")
+        .map(|s| s == "true" || s == "1")
+        .unwrap_or(!caller.is_admin);
+    let mine = if caller.is_admin { false } else { mine };
     let limit: i32 = params
         .get("limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(25);
     let next = params.get("next").cloned();
 
-    let mut scan = ctx.ddb.scan().table_name(&ctx.table).limit(limit);
+    if !mine {
+        let mut scan = ctx.ddb.scan().table_name(&ctx.table).limit(limit);
+        if !q.is_empty() {
+            if let Some(rest) = q.strip_prefix("slug:") {
+                scan = scan
+                    .filter_expression("begins_with(#s, :p)")
+                    .expression_attribute_names("#s", "slug")
+                    .expression_attribute_values(":p", Av::S(rest.to_string()));
+            } else {
+                scan = scan
+                    .filter_expression("contains(#t, :p)")
+                    .expression_attribute_names("#t", "target")
+                    .expression_attribute_values(":p", Av::S(q));
+            }
+        }
+
+        let resp = scan.send().await.map_err(map_ddb_err)?;
+        return Ok(list_response_to_json(
+            resp.items(),
+            resp.count(),
+            resp.last_evaluated_key(),
+        ));
+    }
+
+    let mut scan = ctx
+        .ddb
+        .query()
+        .table_name(&ctx.table)
+        .index_name("GSI1-owner")
+        .key_condition_expression("owner_id = :o")
+        .expression_attribute_values(":o", Av::S(caller.user_id))
+        .limit(limit);
 
     if let Some(slug_tok) = next {
         let mut esk = std::collections::HashMap::new();
@@ -431,31 +462,51 @@ async fn list_links(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
     }
 
     let resp = scan.send().await.map_err(map_ddb_err)?;
+    Ok(list_response_to_json(
+        resp.items(),
+        resp.count(),
+        resp.last_evaluated_key(),
+    ))
+}
 
-    let items: Vec<_> = resp.items().iter().map(|it| {
+fn list_response_to_json(
+    items: &[::std::collections::HashMap<
+        ::std::string::String,
+        aws_sdk_dynamodb::types::AttributeValue,
+    >],
+    count: i32,
+    lek: Option<&std::collections::HashMap<String, Av>>,
+) -> Response<Body> {
+    let items: Vec<_> = items.iter().map(|it| {
         json!({
             "slug": it.get("slug").and_then(|v| v.as_s().ok()),
             "target": it.get("target").and_then(|v| v.as_s().ok()),
             "created_at": it.get("created_at").and_then(|v| v.as_n().ok()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0),
             "visits": it.get("visits").and_then(|v| v.as_n().ok()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0),
-            "expires_at": it.get("expires_at").and_then(|v| v.as_n().ok()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0)
+            "expires_at": it.get("expires_at").and_then(|v| v.as_n().ok()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0),
+            "status": it.get("status").and_then(|v| v.as_s().ok()),
+            "owner_id": it.get("owner_id").and_then(|v| v.as_s().ok()),
         })
     }).collect();
 
-    let mut out = json!({ "items": items, "count": resp.count() });
-    if let Some(lek) = resp.last_evaluated_key() {
+    let mut out = json!({ "items": items, "count": count });
+    if let Some(lek) = lek {
         if let Some(Av::S(slug)) = lek.get("slug") {
             out["next"] = json!(slug);
         }
     }
 
-    Ok(resp_json(200, out))
+    resp_json(200, out)
 }
 
 async fn delete_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
-    if !auth_admin(&req, ctx).await {
-        return Ok(resp_json(401, json!({"error":"unauthorized"})));
-    }
+    let caller = match require_auth(&req).await {
+        Ok(c) => c,
+        Err(_) => {
+            // Swallow auth errors and return 404 to avoid leaking existence
+            return json_err(404, "not_found", "Slug not found");
+        }
+    };
 
     let slug = req
         .uri()
@@ -466,23 +517,38 @@ async fn delete_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
         return Ok(resp_json(400, json!({"error":"missing slug"})));
     }
 
+    if !caller.is_admin {
+        // Fetch current item
+        let item = ctx
+            .ddb
+            .get_item()
+            .table_name(&ctx.table)
+            .key("slug", Av::S(slug.to_string()))
+            .send()
+            .await
+            .map_err(|e| lambda_http::Error::from(format!("ddb get: {e}")))?
+            .item;
+        let Some(item) = item else {
+            return json_err(404, "not_found", "Slug not found");
+        };
+        let owner = item
+            .get("owner_id")
+            .and_then(|v| v.as_s().ok())
+            .map_or("system", |v| v);
+        if owner != &caller.user_id {
+            return json_err(404, "not_found", "Slug not found");
+        };
+    }
+
     ctx.ddb
         .delete_item()
         .table_name(&ctx.table)
         .key("slug", Av::S(slug))
         .send()
         .await
-        .map_err(|e| Error::from(format!("ddb delete: {e}")))?;
+        .map_err(|e| Error::from(format!("ddb delete: {:?}", e)))?;
 
     Ok(Response::builder().status(204).body(Body::Empty).unwrap())
-}
-
-fn resp_json(status: u16, v: serde_json::Value) -> Response<Body> {
-    Response::builder()
-        .status(status)
-        .header("Content-Type", "application/json")
-        .body(Body::Text(v.to_string()))
-        .unwrap()
 }
 
 async fn oauth_start(_req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
@@ -491,7 +557,7 @@ async fn oauth_start(_req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> 
 
     // Create tamper-evident state using HMAC (Lambda only; no edge secret)
     let nonce = uuid::Uuid::new_v4().to_string();
-    let exp = epoch() + 600; // 10 min
+    let exp = epoch_now() + 600; // 10 min
     let payload = format!("{{\"n\":\"{}\",\"exp\":{}}}", nonce, exp);
     let state_payload_b64 = b64u(payload.as_bytes());
     let mut mac = HmacSha256::new_from_slice(
@@ -580,7 +646,7 @@ async fn oauth_callback(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error
     let exp_ok = st_val
         .get("exp")
         .and_then(|v| v.as_u64())
-        .map(|e| epoch() < e)
+        .map(|e| epoch_now() < e)
         .unwrap_or(false);
     if !exp_ok {
         return Ok(resp_json(401, json!({"error":"state_expired"})));
@@ -673,7 +739,7 @@ async fn oauth_callback(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(3600);
-    let iat = epoch();
+    let iat = epoch_now();
     let exp = iat + ttl;
     let header = json!({"alg":"RS256","typ":"JWT","kid": std::env::var("JWT_KMS_KEY_ID").unwrap_or_default()});
     let payload = json!({"iss": iss, "aud": aud, "sub": login, "iat": iat, "exp": exp});
@@ -744,91 +810,23 @@ async fn admin_logout(_req: Request, ctx: &Ctx) -> Result<Response<Body>, Error>
 }
 
 async fn admin_me(req: Request, _ctx: &Ctx) -> Result<Response<Body>, Error> {
-    let cookie_hdr = req
-        .headers()
-        .get("cookie")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-    let token = match get_cookie(cookie_hdr, "qs_admin_api") {
-        Some(t) if !t.is_empty() => t,
-        _ => return Ok(resp_json(401, json!({"error":"unauthorized"}))),
-    };
+    if let Some(c) = caller_id(&req).await {
+        let src = match c.source {
+            CallerSource::Cognito => "cognito",
+            CallerSource::AdminCookie => "legacy",
+        };
 
-    // Split JWT
-    let mut parts = token.split('.');
-    let h_b64 = parts.next().unwrap_or("");
-    let p_b64 = parts.next().unwrap_or("");
-    let s_b64 = parts.next().unwrap_or("");
-    if h_b64.is_empty() || p_b64.is_empty() || s_b64.is_empty() {
-        return Ok(resp_json(401, json!({"error":"unauthorized"})));
+        // NOTE: no `.to_string()` on serde_json::Value — everything here is a plain String
+        let body = serde_json::json!({
+            "user_id": c.user_id,       // preferred key
+            "login":   c.user_id,       // compat with old client
+            "email":   c.email,
+            "source":  src,
+            "is_admin": c.is_admin,
+        });
+
+        return Ok(resp_json(200, body));
     }
 
-    // Verify with KMS (same key, RSASSA_PKCS1_V1_5_SHA_256)
-    let cfg = aws_config::load_defaults(BehaviorVersion::latest()).await;
-    let kmsc = kms::Client::new(&cfg);
-    let signing_input = format!("{}.{}", h_b64, p_b64);
-    let sig = match b64u_to_bytes(s_b64) {
-        Some(v) => v,
-        None => return Ok(resp_json(401, json!({"error":"unauthorized"}))),
-    };
-
-    let key_id = std::env::var("JWT_KMS_KEY_ID").unwrap_or_default();
-    let vr = kmsc
-        .verify()
-        .key_id(key_id)
-        .message(signing_input.as_bytes().to_vec().into())
-        .signature(sig.into())
-        .signing_algorithm(SigningAlgorithmSpec::RsassaPkcs1V15Sha256)
-        .send()
-        .await
-        .map_err(|e| Error::from(format!("kms verify: {e}")))?;
-
-    if !vr.signature_valid {
-        return Ok(resp_json(401, json!({"error":"unauthorized"})));
-    }
-
-    // Decode payload and read `sub`
-    let payload_json = match b64u_to_bytes(p_b64).and_then(|b| String::from_utf8(b).ok()) {
-        Some(s) => s,
-        None => return Ok(resp_json(401, json!({"error":"unauthorized"}))),
-    };
-    let v: serde_json::Value = serde_json::from_str(&payload_json).unwrap_or(json!({}));
-    let login = v.get("sub").and_then(|x| x.as_str()).unwrap_or("");
-
-    if login.is_empty() {
-        return Ok(resp_json(401, json!({"error":"unauthorized"})));
-    }
-
-    Ok(resp_json(200, json!({ "login": login })))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::auth_ok;
-    use lambda_http::{http::HeaderValue, Request};
-
-    #[test]
-    fn auth_passes_on_exact_bearer() {
-        let mut req = Request::default();
-        req.headers_mut()
-            .insert("authorization", HeaderValue::from_static("Bearer abc"));
-        assert!(auth_ok(&req, &Some("abc".into())));
-    }
-
-    #[test]
-    fn auth_fails_on_missing_or_wrong_token() {
-        let req = Request::default();
-        assert!(!auth_ok(&req, &Some("abc".into())));
-
-        let mut req2 = Request::default();
-        req2.headers_mut()
-            .insert("authorization", HeaderValue::from_static("Bearer wrong"));
-        assert!(!auth_ok(&req2, &Some("abc".into())));
-    }
-
-    #[test]
-    fn auth_is_open_when_unset() {
-        let req = Request::default();
-        assert!(auth_ok(&req, &None));
-    }
+    json_err(401, "unauthorized", "Not signed in")
 }

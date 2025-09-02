@@ -1,3 +1,21 @@
+# Authorizer
+
+# One authorizer for all /v1/* routes
+resource "aws_apigatewayv2_authorizer" "combined" {
+  api_id          = aws_apigatewayv2_api.http.id
+  name            = "qs-combined-auth"
+  authorizer_type = "REQUEST"
+  authorizer_uri  = aws_lambda_function.authorizer.invoke_arn
+  # HTTP API v2
+  authorizer_payload_format_version = "2.0"
+  enable_simple_responses           = true
+
+  identity_sources = [
+    "$request.header.Authorization",
+    "$request.header.cookie"
+  ]
+}
+
 resource "aws_apigatewayv2_api" "http" {
   provider      = aws.lambda
   name          = "quickshort-http"
@@ -12,9 +30,11 @@ resource "aws_apigatewayv2_integration" "lambda" {
 }
 
 resource "aws_apigatewayv2_route" "create" {
-  api_id    = aws_apigatewayv2_api.http.id
-  route_key = "POST /v1/links"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.combined.id
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "POST /v1/links"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 resource "aws_apigatewayv2_route" "resolve" {
@@ -24,15 +44,19 @@ resource "aws_apigatewayv2_route" "resolve" {
 }
 
 resource "aws_apigatewayv2_route" "list" {
-  api_id    = aws_apigatewayv2_api.http.id
-  route_key = "GET /v1/links"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.combined.id
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "GET /v1/links"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 resource "aws_apigatewayv2_route" "delete" {
-  api_id    = aws_apigatewayv2_api.http.id
-  route_key = "DELETE /v1/links/{slug}"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.combined.id
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "DELETE /v1/links/{slug}"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 resource "aws_apigatewayv2_stage" "prod" {
@@ -45,6 +69,16 @@ resource "aws_lambda_permission" "allow_apigw" {
   statement_id  = "AllowAPIGwInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
+}
+
+
+# Allow API Gateway to invoke the authorizer
+resource "aws_lambda_permission" "authz_invoke" {
+  statement_id  = "AllowAPIGatewayInvokeAuthz"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.authorizer.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
 }
@@ -68,16 +102,19 @@ resource "aws_apigatewayv2_route" "admin_logout" {
 }
 
 resource "aws_apigatewayv2_route" "admin_me" {
-  api_id    = aws_apigatewayv2_api.http.id
-  route_key = "GET /v1/admin/me"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.combined.id
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "GET /v1/admin/me"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 resource "aws_apigatewayv2_route" "links_put" {
-  api_id    = aws_apigatewayv2_api.http.id
-  route_key = "PUT /v1/links/{slug}"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.combined.id
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "PUT /v1/links/{slug}"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 output "api_invoke_url" { value = aws_apigatewayv2_api.http.api_endpoint }
-

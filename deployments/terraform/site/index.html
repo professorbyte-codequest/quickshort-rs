@@ -37,6 +37,8 @@
         color: #475569;
       }
     </style>
+    <script src="/auth/config.js"></script>
+    <script src="/auth/auth.js"></script>
   </head>
   <body>
     <main class="wrap">
@@ -49,6 +51,7 @@
         A public preview is coming soon — we’re tuning caching, auth, and costs
         so we don’t melt our DynamoDB bill.
       </p>
+      <p id="out" style="background:#f6f8fa;padding:1rem;border-radius:.5rem;"></p>
       <p>
         If you’re part of the team, head to the
         <a class="cta" href="/admin/">Admin Console →</a>
@@ -68,5 +71,31 @@
 
       gtag("config", "{{ site.google_analytics }}");
     </script>
+
+  <script>
+    (async () => {
+      const out = document.getElementById('out');
+      try {
+        // ensure we have an ID token
+        const idt = localStorage.getItem('qs_id_token');
+        if (!idt) {
+          // no token: send them to sign-in
+          out.innerHTML = '<a href="/auth/signin">Sign in</a>';
+          return;
+        }
+        // call API with Authorization header (added by qsApi)
+        const r = await QSAuth.qsApi('/v1/admin/me');
+        if (r.ok) {
+          const j = await r.json();
+          out.textContent = "Hello, " + j.email;
+        } else {
+          console.log('me API error', r.status, r.json());
+          out.innerHTML = '<a href="/auth/signin">Sign in</a>';
+        }
+      } catch (e) {
+        out.innerHTML = '<a href="/auth/signin">Sign in</a>';
+      }
+    })();
+  </script>
   </body>
 </html>

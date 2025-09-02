@@ -17,7 +17,6 @@ resource "aws_lambda_function" "api" {
       TABLE_NAME           = aws_dynamodb_table.links.name
       CACHE_MAX_AGE        = 86400
       PUBLIC_DOMAIN        = local.fqdn
-      CREATE_TOKEN         = nonsensitive(data.aws_secretsmanager_secret_version.create_token.secret_string)
       GITHUB_CLIENT_ID     = nonsensitive(data.aws_secretsmanager_secret_version.gh_id.secret_string)
       GITHUB_CLIENT_SECRET = nonsensitive(data.aws_secretsmanager_secret_version.gh_secret.secret_string)
       ADMIN_GITHUB_LOGINS  = nonsensitive(data.aws_secretsmanager_secret_version.gh_allow.secret_string)
@@ -29,6 +28,7 @@ resource "aws_lambda_function" "api" {
     }
   }
 }
+
 resource "aws_iam_role" "logproc_role" {
   name = "qs-logproc-role"
   assume_role_policy = jsonencode({
@@ -79,7 +79,10 @@ resource "aws_iam_role_policy_attachment" "logproc_attach" {
 
 # Path to the built zip produced by `cargo lambda build --arm64 --output-format zip`
 # Expecting it at ../../target/lambda/logproc/bootstrap.zip from this tf dir
-locals { logproc_zip = "../../target/lambda/logproc/bootstrap.zip" }
+locals {
+  logproc_zip    = "../../target/lambda/logproc/bootstrap.zip"
+  authorizer_zip = "../../target/lambda/qs_authorizer/bootstrap.zip"
+}
 
 resource "aws_lambda_function" "logproc" {
   provider         = aws.use1
@@ -98,6 +101,32 @@ resource "aws_lambda_function" "logproc" {
       TABLE_NAME   = aws_dynamodb_table.links.name
       TABLE_REGION = var.aws_region_lambda # us-west-2 (write to DDB in west-2)
       LOG_LEVEL    = "info"
+    }
+  }
+}
+
+resource "aws_lambda_function" "authorizer" {
+  provider         = aws.lambda
+  function_name    = "quickshort_authorizer"
+  role             = aws_iam_role.lambda_role.arn
+  filename         = local.authorizer_zip
+  source_code_hash = filebase64sha256(local.authorizer_zip)
+  handler          = "bootstrap"
+  runtime          = "provided.al2023"
+  architectures    = ["arm64"]
+  timeout          = 5
+  memory_size      = 256
+
+  environment {
+    variables = {
+      COGNITO_ISS          = "https://cognito-idp.${var.aws_region_lambda}.amazonaws.com/${aws_cognito_user_pool.qs.id}"
+      COGNITO_CLIENT_ID    = aws_cognito_user_pool_client.app.id
+      GITHUB_CLIENT_ID     = nonsensitive(data.aws_secretsmanager_secret_version.gh_id.secret_string)
+      GITHUB_CLIENT_SECRET = nonsensitive(data.aws_secretsmanager_secret_version.gh_secret.secret_string)
+      ADMIN_GITHUB_LOGINS  = nonsensitive(data.aws_secretsmanager_secret_version.gh_allow.secret_string)
+      ADMIN_STATE_KEY      = nonsensitive(data.aws_secretsmanager_secret_version.state_key.secret_string)
+      JWT_AUD              = "qs-admin"
+      JWT_ISS              = "https://${local.fqdn}"
     }
   }
 }
