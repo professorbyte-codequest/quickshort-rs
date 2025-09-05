@@ -1,29 +1,17 @@
-use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb as ddb;
 use aws_sdk_dynamodb::error::ProvideErrorMetadata; // for .code()
-use aws_sdk_kms as kms;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
 use ddb::types::AttributeValue as Av;
-use hmac::{Hmac, Mac};
 use lambda_http::{Body, Error, Request, Response};
-use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use reqwest::Client;
 use serde_json::json;
-use sha2::Sha256;
-use std::borrow::Cow;
 
 use crate::{
-    auth::{caller_id, require_auth, Caller, CallerSource},
-    handler::{get_cookie, json_err, map_ddb_err, Ctx},
+    auth::{require_auth, Caller},
+    handler::{json_err, map_ddb_err, Ctx},
     id::new_slug,
     model::{CreateReq, CreateResp},
-    oauth::{oauth_callback, oauth_start},
     require_auth_or_return,
-    util::{b64u, epoch_now, resp_json, valid_target},
+    util::{epoch_now, resp_json, valid_target},
 };
-
-type HmacSha256 = Hmac<Sha256>;
 
 pub(crate) async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
     let caller = require_auth_or_return!(req, 401, "unauthorized", "Requires authentication");
@@ -433,7 +421,7 @@ pub(crate) async fn delete_link(req: Request, ctx: &Ctx) -> Result<Response<Body
             .get("owner_id")
             .and_then(|v| v.as_s().ok())
             .map_or("system", |v| v);
-        if owner != &caller.user_id {
+        if owner != caller.user_id {
             return json_err(404, "not_found", "Slug not found");
         };
     }

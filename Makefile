@@ -4,7 +4,7 @@ TF_VARS = -var domain_name="codequesthub.io" \
           -var subdomain="go" \
           -var aws_region_lambda="us-west-2"
 
-.PHONY: test tf-plan test-all deploy fmt tf-fmt fmt-all build clean invalidate-admin invalidate-all build-logproc build-authorizer
+.PHONY: test tf-plan test-all deploy fmt tf-fmt fmt-all build clean invalidate-admin invalidate-all invalidate-users build-logproc build-authorizer
 
 # Run all tests with all features
 test:
@@ -61,3 +61,11 @@ invalidate-all:
 	aws cloudfront create-invalidation \
 	  --distribution-id $$DISTRIBUTION_ID \
 	  --paths "/*"
+
+invalidate-users:
+	@cd $(TERRAFORM_DIR) && \
+	DISTRIBUTION_ID=$$(terraform output -raw cf_distribution_id) && \
+	echo "Invalidating /users/* on $$DISTRIBUTION_ID ..." && \
+	aws cloudfront create-invalidation \
+	  --distribution-id $$DISTRIBUTION_ID \
+	  --paths "/users" "/users/" "/users/*" "/auth/*"

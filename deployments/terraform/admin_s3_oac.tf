@@ -64,7 +64,7 @@ resource "aws_s3_object" "auth_signout" {
 
 resource "aws_s3_object" "auth_signedout" {
   bucket       = aws_s3_bucket.admin.id
-  key          = "auth/signout"
+  key          = "auth/signedout"
   content_type = "text/html; charset=utf-8"
   content      = file("${path.module}/auth/signedout.html")
   etag         = filemd5("${path.module}/auth/signedout.html")

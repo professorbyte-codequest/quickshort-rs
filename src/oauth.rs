@@ -10,11 +10,8 @@ use serde_json::json;
 use sha2::Sha256;
 
 use crate::{
-    auth::{caller_id, require_auth, Caller, CallerSource},
     handler::{get_cookie, Ctx},
-    id::new_slug,
-    model::{CreateReq, CreateResp},
-    util::{b64u, epoch_now, resp_json, valid_target},
+    util::{b64u, epoch_now, resp_json},
 };
 
 type HmacSha256 = Hmac<Sha256>;

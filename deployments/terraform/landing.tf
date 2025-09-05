@@ -69,3 +69,14 @@ resource "aws_s3_object" "landing_index" {
   etag          = filemd5("${path.module}/site/index.html")
   cache_control = "public, max-age=300"
 }
+
+
+# Upload index.html (alternatively, use file() to read from repo)
+resource "aws_s3_object" "users_index" {
+  bucket        = aws_s3_bucket.landing.id
+  key           = "users/index.html"
+  content_type  = "text/html; charset=utf-8"
+  content       = file("${path.module}/site/users/index.html")
+  etag          = filemd5("${path.module}/site/users/index.html")
+  cache_control = "public, max-age=300"
+}

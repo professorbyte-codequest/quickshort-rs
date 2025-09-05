@@ -27,9 +27,14 @@
             throw new Error("State mismatch");
           const tok = await QSAuth.exchangeCode(code);
           el.textContent = "Success! Redirecting…";
-          el.innerHTML += '<a href="/v1/admin/me">here</a><br/>';
+          el.innerHTML += '<a href="/users/index.html">here</a><br/>';
           // Where to land post-login; adjust as needed
-          setTimeout(() => location.replace("/"), 500);
+          const r = await QSAuth.qsApi('/v1/users/ensure', { method: 'POST' });
+          if (!r.ok) {
+            const t = await r.text();
+            console.warn('User ensure failed', r.status, t);
+          }
+          setTimeout(() => location.replace("/users/index.html"), 500);
         } catch (e) {
           el.textContent = "Sign-in failed: " + (e.message || e);
         }

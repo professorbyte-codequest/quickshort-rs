@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My Links – QuickShort</title>
+    <script src="/auth/config.js"></script>
+    <script src="/auth/auth.js"></script>
+    <style>
+      :root {
+        --bg: #0b0d10;
+        --card: #12151a;
+        --muted: #9aa4b2;
+        --text: #e6edf3;
+        --acc: #4dabf7;
+        --border: #242a33;
+      }
+      html,
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      }
+      .wrap {
+        max-width: 900px;
+        margin: 40px auto;
+        padding: 0 16px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .brand h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      @media (min-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr 2fr;
+        }
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .row > * {
+        flex: 1;
+      }
+      .row .slug {
+        max-width: 220px;
+      }
+      .row .url {
+        flex: 2;
+        min-width: 260px;
+      }
+
+      input,
+      button {
+        font: inherit;
+      }
+      input[type="text"] {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #0f1318;
+        color: var(--text);
+        outline: none;
+      }
+      input[type="text"]:focus {
+        border-color: var(--acc);
+        box-shadow: 0 0 0 3px rgba(77, 171, 247, 0.15);
+      }
+
+      .btn {
+        padding: 9px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #0f1318;
+        color: var(--text);
+        cursor: pointer;
+      }
+      .btn.primary {
+        background: linear-gradient(180deg, #1c7ed6, #1971c2);
+        border-color: #165996;
+      }
+      .btn.danger {
+        background: #872e2e;
+        border-color: #6e2222;
+      }
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: middle;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+        text-align: left;
+      }
+      code.small {
+        background: #0f1318;
+        border: 1px solid var(--border);
+        padding: 2px 6px;
+        border-radius: 8px;
+        font-size: 12px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: #0f1318;
+        color: var(--text);
+        font-size: 12px;
+      }
+      .right {
+        text-align: right;
+      }
+      a {
+        color: #91c9ff;
+      }
+      .err {
+        color: #ff6b6b;
+      }
+      .ok {
+        color: #8ce99a;
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 12h10"
+              stroke="#4dabf7"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+            <path
+              d="M12 5l7 7-7 7"
+              stroke="#4dabf7"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+          <h1>My Links</h1>
+        </div>
+        <div class="toolbar">
+          <span id="plan" class="pill"
+            >plan:
+            <strong id="planName" style="margin-left: 6px">…</strong></span
+          >
+          <a href="/auth/signout" class="btn">Sign out</a>
+        </div>
+      </header>
+
+      <div class="grid">
+        <!-- Create new link -->
+        <section class="card">
+          <h2 style="margin-top: 0">Create a short link</h2>
+          <p class="muted" style="margin-top: 4px">
+            Pick a slug and a destination URL.
+          </p>
+          <div class="row" style="margin-top: 12px">
+            <div class="slug">
+              <label class="muted" for="newSlug">Slug</label>
+              <input
+                id="newSlug"
+                type="text"
+                placeholder="my-link"
+                autocomplete="off"
+              />
+            </div>
+            <div class="url">
+              <label class="muted" for="newUrl">Target URL</label>
+              <input
+                id="newUrl"
+                type="text"
+                placeholder="https://example.com/article"
+              />
+            </div>
+          </div>
+          <div style="margin-top: 12px">
+            <button id="createBtn" class="btn primary">Create</button>
+            <span id="createMsg" class="muted" style="margin-left: 10px"></span>
+          </div>
+        </section>
+
+        <!-- My links list -->
+        <section class="card">
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 12px;
+            "
+          >
+            <h2 style="margin: 0">Your links</h2>
+            <button id="refreshBtn" class="btn">Refresh</button>
+          </div>
+          <table id="linksTable" style="margin-top: 12px">
+            <thead>
+              <tr>
+                <th>Slug</th>
+                <th>Target URL</th>
+                <th>Visits</th>
+                <th class="right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="linksBody">
+              <tr>
+                <td colspan="3" class="muted">Loading…</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <p class="muted" style="margin-top: 24px">
+        Tip: click a short link to copy it.
+      </p>
+    </div>
+
+    <script>
+      (function () {
+        const out = (id, text, cls) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.textContent = text;
+          if (cls) {
+            el.className = cls;
+          }
+        };
+        const origin = window.location.origin;
+
+        async function requireSignedIn() {
+          const idt = localStorage.getItem("qs_id_token");
+          if (!idt) {
+            location.href = "/auth/signin.html";
+            throw new Error("not signed in");
+          }
+        }
+
+        async function loadMe() {
+          const r = await QSAuth.qsApi("/v1/users/me");
+          if (r.status === 401) {
+            location.href = "/auth/signin.html";
+            return;
+          }
+          if (!r.ok) {
+            out("planName", "unknown");
+            return;
+          }
+          const j = await r.json();
+          out("planName", j.plan || "free");
+        }
+
+        function linkRow(item) {
+          const tr = document.createElement("tr");
+          const shortUrl = `${origin}/${item.slug}`;
+
+          const tdSlug = document.createElement("td");
+          const a = document.createElement("a");
+          a.href = shortUrl;
+          a.textContent = item.slug;
+          a.title = "Click to copy";
+          a.addEventListener("click", (e) => {
+            e.preventDefault();
+            navigator.clipboard.writeText(shortUrl);
+            a.textContent = item.slug + " ✓";
+            setTimeout(() => (a.textContent = item.slug), 900);
+          });
+          tdSlug.appendChild(a);
+
+          const tdUrl = document.createElement("td");
+          const input = document.createElement("input");
+          input.type = "text";
+          input.value = item.target || "";
+          input.size = 40;
+          input.style.minWidth = "240px";
+          tdUrl.appendChild(input);
+          const tdVisits = document.createElement("td");
+          tdVisits.className = "muted";
+          tdVisits.textContent = `${item.visits || 0}`;
+
+          const tdAct = document.createElement("td");
+          tdAct.className = "right";
+          const save = document.createElement("button");
+          save.className = "btn";
+          save.textContent = "Save";
+          const del = document.createElement("button");
+          del.className = "btn danger";
+          del.style.marginLeft = "8px";
+          del.textContent = "Delete";
+
+          save.addEventListener("click", async () => {
+            save.disabled = true;
+            del.disabled = true;
+            try {
+              const resp = await QSAuth.qsApi(
+                `/v1/links/${encodeURIComponent(item.slug)}`,
+                {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ target_url: input.value }),
+                }
+              );
+              if (!resp.ok) throw new Error(`Save failed: ${resp.status}`);
+              save.textContent = "Saved";
+              setTimeout(() => (save.textContent = "Save"), 900);
+            } catch (e) {
+              alert(e.message || e);
+            } finally {
+              save.disabled = false;
+              del.disabled = false;
+            }
+          });
+
+          del.addEventListener("click", async () => {
+            if (!confirm(`Delete /${item.slug}?`)) return;
+            save.disabled = true;
+            del.disabled = true;
+            try {
+              const resp = await QSAuth.qsApi(
+                `/v1/links/${encodeURIComponent(item.slug)}`,
+                { method: "DELETE" }
+              );
+              if (!resp.ok) throw new Error(`Delete failed: ${resp.status}`);
+              tr.remove();
+            } catch (e) {
+              alert(e.message || e);
+            }
+          });
+
+          tdAct.appendChild(save);
+          tdAct.appendChild(del);
+          tr.appendChild(tdSlug);
+          tr.appendChild(tdUrl);
+          tr.appendChild(tdVisits);
+          tr.appendChild(tdAct);
+          return tr;
+        }
+
+        async function loadLinks() {
+          const body = document.getElementById("linksBody");
+          body.innerHTML =
+            '<tr><td colspan="4" class="muted">Loading…</td></tr>';
+          const r = await QSAuth.qsApi("/v1/links");
+          if (r.status === 401) {
+            location.href = "/auth/signin.html";
+            return;
+          }
+          if (!r.ok) {
+            body.innerHTML = `<tr><td colspan=4 class=err>Failed to load (${r.status})</td></tr>`;
+            return;
+          }
+          const j = await r.json();
+          const items = (j.items || []).sort((a, b) =>
+            a.slug.localeCompare(b.slug)
+          );
+          body.innerHTML = "";
+          if (!items.length) {
+            body.innerHTML =
+              '<tr><td colspan="4" class="muted">No links yet — create your first one!</td></tr>';
+            return;
+          }
+          for (const it of items) body.appendChild(linkRow(it));
+        }
+
+        async function createLink() {
+          const slug = document.getElementById("newSlug").value.trim();
+          const url = document.getElementById("newUrl").value.trim();
+          const msg = document.getElementById("createMsg");
+          const btn = document.getElementById("createBtn");
+          if (!url) {
+            msg.textContent = "URL is required";
+            msg.className = "err";
+            return;
+          }
+          btn.disabled = true;
+          msg.textContent = "";
+          try {
+            const resp = slug
+              ? await QSAuth.qsApi("/v1/links", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ slug, target: url }),
+                })
+              : await QSAuth.qsApi("/v1/links", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ target: url }),
+                });
+            if (!resp.ok) {
+              const t = await resp.text();
+              throw new Error(`Create failed: ${resp.status} ${t}`);
+            }
+            document.getElementById("newSlug").value = "";
+            document.getElementById("newUrl").value = "";
+            msg.textContent = "Created";
+            msg.className = "ok";
+            await loadLinks();
+          } catch (e) {
+            msg.textContent = (e && e.message) || String(e);
+            msg.className = "err";
+          } finally {
+            btn.disabled = false;
+          }
+        }
+
+        // wire up
+        document
+          .getElementById("createBtn")
+          .addEventListener("click", createLink);
+        document
+          .getElementById("refreshBtn")
+          .addEventListener("click", loadLinks);
+
+        // boot
+        (async function init() {
+          try {
+            await requireSignedIn();
+          } catch {
+            return;
+          }
+          await loadMe();
+          await loadLinks();
+        })();
+      })();
+    </script>
+  </body>
+</html>

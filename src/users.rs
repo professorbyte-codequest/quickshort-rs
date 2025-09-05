@@ -1,79 +1,121 @@
-use aws_config::BehaviorVersion;
-use aws_sdk_dynamodb as ddb;
-use aws_sdk_dynamodb::error::ProvideErrorMetadata; // for .code()
-use aws_sdk_kms as kms;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
-use chrono::Utc;
-use ddb::types::AttributeValue as Av;
-use hmac::{Hmac, Mac};
-use lambda_http::{Body, Error, Request, Response};
-use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use reqwest::Client;
-use serde_json::json;
-use sha2::Sha256;
-use std::borrow::Cow;
 use std::default;
 
+use aws_sdk_dynamodb as ddb;
+// for .code()
+use chrono::Utc;
+use ddb::types::AttributeValue as Av;
+use lambda_http::{Body, Error, Request, Response};
+use aws_sdk_dynamodb::error::ProvideErrorMetadata;
+use aws_sdk_dynamodb::types::ReturnValue;
+
 use crate::{
-    auth::{caller_id, require_auth, Caller, CallerSource},
-    handler::{get_cookie, json_err, json_ok, Ctx},
-    id::new_slug,
-    model::{CreateReq, CreateResp},
-    oauth::{oauth_callback, oauth_start},
+    auth::{require_auth, CallerSource},
+    handler::{json_err, json_ok, Ctx},
     require_auth_or_return,
-    util::{b64u, epoch_now, resp_json, valid_target},
 };
 
-type HmacSha256 = Hmac<Sha256>;
+pub async fn ensure_user(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
+    let caller = require_auth(&req).await?;
 
-pub(crate) async fn ensure_user(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
-    let caller = require_auth_or_return!(req, 401, "unauthorized", "Requires authentication");
-
-    // For now, only Cognito/Google users register. Admin legacy cookie callers skip.
+    // We don't create "users" for legacy admin cookie callers
     if matches!(caller.source, CallerSource::AdminCookie) {
-        return json_err(
-            400,
-            "unsupported",
-            "Admin cookie auth does not create user accounts",
-        );
+        return json_err(400, "unsupported", "Admin cookie auth does not create user accounts");
     }
 
-    let user_id = caller.user_id.clone(); // Cognito sub
-    let provider = "google".to_string(); // We only expose Google for now
-    let email = caller.email.clone().unwrap_or_default();
-    let now = Utc::now().to_rfc3339();
+    let table = ctx.table_users.as_str();
+    if table.is_empty() {
+        return json_err(500, "config", "TABLE_USERS not set");
+    }
 
-    // Idempotent upsert: on first call, set initial fields; on subsequent calls, only update updated_at.
-    // Using UpdateItem so it's safe to invoke repeatedly.
-    let resp = ctx.ddb
-        .update_item()
-        .table_name(&ctx.table_users)
-        .key("user_id", Av::S(user_id.clone()))
-        .update_expression("SET #p = if_not_exists(#p, :p), email = if_not_exists(email, :e), plan = if_not_exists(plan, :plan), created_at = if_not_exists(created_at, :now), updated_at = :now")
-        .expression_attribute_names("#p", "provider")
-        .expression_attribute_values(":p", Av::S(provider.clone()))
-        .expression_attribute_values(":e", Av::S(email.clone()))
-        .expression_attribute_values(":plan", Av::S("free".into()))
-        .expression_attribute_values(":now", Av::S(now.clone()))
-        .return_values(aws_sdk_dynamodb::types::ReturnValue::AllNew)
+    let user_id  = caller.user_id.clone();          // Cognito sub
+    let provider = "google".to_string();            // current IdP
+    let email    = caller.email.clone().unwrap_or_default();
+    let now      = Utc::now().to_rfc3339();
+
+    // 1) Try to CREATE the item if it doesn't exist (idempotent on first visit)
+    let put = ctx.ddb
+        .put_item()
+        .table_name(table)
+        .item("user_id",    Av::S(user_id.clone()))
+        .item("provider",   Av::S(provider.clone()))
+        .item("email",      Av::S(email.clone()))
+        .item("plan",       Av::S("free".into()))
+        .item("created_at", Av::S(now.clone()))
+        .item("updated_at", Av::S(now.clone()))
+        .condition_expression("attribute_not_exists(user_id)")
         .send()
-        .await
-        .map_err(|e| lambda_http::Error::from(format!("ddb users update: {e}")))?;
+        .await;
 
-    let item = resp.attributes.unwrap_or_default();
-    let default_plan = "free".to_string();
-    let out = serde_json::json!({
-        "user_id": user_id,
-        "provider": provider,
-        "email": email,
-        "plan": item.get("plan").and_then(|v| v.as_s().ok()).unwrap_or(&default_plan),
-        "created_at": item.get("created_at").and_then(|v| v.as_s().ok()),
-        "updated_at": item.get("updated_at").and_then(|v| v.as_s().ok()),
-    });
+    match put {
+        Ok(_) => {
+            let out = serde_json::json!({
+                "user_id": user_id,
+                "provider": provider,
+                "email": email,
+                "plan": "free",
+                "created_at": now,
+                "updated_at": now,
+                "_created": true
+            });
+            return Ok(json_ok(out));
+        }
+        Err(e) => {
+            // If the user already exists, fall through to UpdateItem; otherwise, surface details.
+            let code = e.code().unwrap_or("unknown");
+            if code != "ConditionalCheckFailedException" {
+                let msg = e.message().unwrap_or("");
+                tracing::error!(table=%table, err_code=%code, err_msg=%msg, "DDB PutItem failed");
+                return json_err(500, "ddb_put", format!("code={} msg={}", code, msg));
+            }
+        }
+    }
 
-    Ok(json_ok(out))
+    // 2) The item already exists — UPDATE missing fields and bump updated_at
+    let upd = ctx.ddb
+        .update_item()
+        .table_name(table)
+        .key("user_id", Av::S(user_id.clone()))
+        .update_expression(
+            "SET #provider = if_not_exists(#provider, :p), \
+                  #email    = if_not_exists(#email, :e), \
+                  #plan     = if_not_exists(#plan, :plan), \
+                  created_at = if_not_exists(created_at, :now), \
+                  updated_at = :now"
+        )
+        .expression_attribute_names("#provider", "provider")
+        .expression_attribute_names("#email",    "email")
+        .expression_attribute_names("#plan",     "plan")
+        .expression_attribute_values(":p",    Av::S(provider.clone()))
+        .expression_attribute_values(":e",    Av::S(email.clone()))
+        .expression_attribute_values(":plan", Av::S("free".into()))
+        .expression_attribute_values(":now",  Av::S(now.clone()))
+        .return_values(ReturnValue::AllNew)
+        .send()
+        .await;
+
+    match upd {
+        Ok(resp) => {
+            let default_plan = "free".to_string();
+            let item = resp.attributes.unwrap_or_default();
+            let plan = item.get("plan").and_then(|v| v.as_s().ok()).unwrap_or(&default_plan);
+            let created = item.get("created_at").and_then(|v| v.as_s().ok());
+            let updated = item.get("updated_at").and_then(|v| v.as_s().ok());
+            let out = serde_json::json!({
+                "user_id": user_id, "provider": provider, "email": email,
+                "plan": plan, "created_at": created, "updated_at": updated,
+                "_created": false
+            });
+            Ok(json_ok(out))
+        }
+        Err(e) => {
+            let code = e.code().unwrap_or("unknown");
+            let msg  = e.message().unwrap_or("");
+            tracing::error!(table=%table, err_code=%code, err_msg=%msg, "DDB UpdateItem failed");
+            json_err(500, "ddb_update", format!("code={} msg={}", code, msg))
+        }
+    }
 }
+
 
 pub(crate) async fn get_me(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
     let caller = require_auth_or_return!(req, 401, "unauthorized", "Requires authentication");

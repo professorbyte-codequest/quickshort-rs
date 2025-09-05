@@ -5,6 +5,10 @@ exports.handler = async (event) => {
   // Only rewrite exactly the naked root
   if (req.uri === "/") {
     req.uri = "/index.html";
+  // Or the /users path to the users index
+  } else if (req.uri === "/users" || req.uri === "/users/") {
+    req.uri = "/users/index.html";
   }
+
   return req;
 };

@@ -247,6 +247,25 @@ resource "aws_cloudfront_distribution" "cdn" {
   }
 
   ordered_cache_behavior {
+    path_pattern           = "users/*"
+    target_origin_id       = "landing-s3"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.minimal.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
+    compress                   = true
+
+    lambda_function_association {
+      event_type   = "origin-request"
+      lambda_arn   = aws_lambda_function.edge_root_rewrite.qualified_arn
+      include_body = false
+    }
+  }
+
+  ordered_cache_behavior {
     path_pattern           = "auth/*"
     target_origin_id       = "admin-s3-origin"
     viewer_protocol_policy = "redirect-to-https"

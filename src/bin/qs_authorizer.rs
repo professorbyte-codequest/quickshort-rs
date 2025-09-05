@@ -1,11 +1,9 @@
 use lambda_runtime::{service_fn, Error as LambdaError, LambdaEvent};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
-use quickshort::auth::{
-    verify_cognito_id_token, verify_legacy_cookie_subject, Caller, CallerSource,
-};
+use quickshort::auth::{verify_cognito_id_token, verify_legacy_cookie_subject};
 
 #[derive(Serialize)]
 struct SimpleAuthz {
@@ -19,7 +17,7 @@ fn get_header<'a>(evt: &'a JsonValue, name: &str) -> Option<&'a str> {
     let headers = evt.get("headers")?.as_object()?;
     headers.get(&name.to_ascii_lowercase())?.as_str()
 }
-fn get_cookie<'a>(evt: &'a JsonValue, name: &str) -> Option<String> {
+fn get_cookie(evt: &JsonValue, name: &str) -> Option<String> {
     let cookie_hdr = get_header(evt, "cookie")?;
     for part in cookie_hdr.split(';') {
         if let Some((k, v)) = part.trim().split_once('=') {

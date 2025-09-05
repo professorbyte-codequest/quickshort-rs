@@ -81,5 +81,30 @@
     return fetch(path, { ...init, headers });
   }
 
-  window.QSAuth = { buildAuthorizeUrl, exchangeCode, qsApi };
+  async function signOut(){
+    const c = cfg();
+
+    // Clear local tokens/state first
+    try {
+      localStorage.removeItem('qs_id_token');
+      localStorage.removeItem('qs_access_token');
+      localStorage.removeItem('qs_refresh_token');
+      sessionStorage.removeItem('qs_oauth_state');
+      sessionStorage.removeItem('qs_pkce_verifier');
+    } catch {}
+
+    // Redirect to Cognito Hosted UI logout
+    if (c.cognitoDomain && c.clientId && c.logoutUri) {
+      const u = new URL(c.cognitoDomain.replace(/\/+$/,'') + '/logout');
+      u.searchParams.set('client_id', c.clientId);
+      u.searchParams.set('logout_uri', c.logoutUri);
+      location.href = u.toString();
+      return;
+    }
+
+    // Fallback: just land on a signed-out page
+    location.href = '/auth/signedout';
+  }
+
+  window.QSAuth = { buildAuthorizeUrl, exchangeCode, qsApi, signOut };
 })();

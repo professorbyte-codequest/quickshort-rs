@@ -1,30 +1,16 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb as ddb;
-use aws_sdk_dynamodb::error::ProvideErrorMetadata; // for .code()
-use aws_sdk_kms as kms;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
-use ddb::types::AttributeValue as Av;
-use hmac::{Hmac, Mac};
+// for .code()
 use lambda_http::{Body, Error, Request, Response};
-use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use reqwest::Client;
-use serde_json::json;
-use sha2::Sha256;
 use std::borrow::Cow;
 
 use crate::{
     admin::{admin_logout, admin_me},
     api::{create_link, delete_link, list_links, resolve_link, update_link},
-    auth::{caller_id, require_auth, Caller, CallerSource},
-    id::new_slug,
-    model::{CreateReq, CreateResp},
     oauth::{oauth_callback, oauth_start},
     users::{ensure_user, get_me},
-    util::{b64u, epoch_now, resp_json, valid_target},
+    util::resp_json,
 };
-
-type HmacSha256 = Hmac<Sha256>;
 
 pub(crate) fn get_cookie(header: &str, name: &str) -> Option<String> {
     // Ex: header = "a=1; qs_state=XYZ; other=2"

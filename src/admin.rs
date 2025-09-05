@@ -1,28 +1,11 @@
-use aws_config::BehaviorVersion;
-use aws_sdk_dynamodb as ddb;
-use aws_sdk_dynamodb::error::ProvideErrorMetadata; // for .code()
-use aws_sdk_kms as kms;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
-use ddb::types::AttributeValue as Av;
-use hmac::{Hmac, Mac};
+// for .code()
 use lambda_http::{Body, Error, Request, Response};
-use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use reqwest::Client;
-use serde_json::json;
-use sha2::Sha256;
-use std::borrow::Cow;
 
 use crate::{
-    auth::{caller_id, require_auth, Caller, CallerSource},
-    handler::{get_cookie, json_err, Ctx},
-    id::new_slug,
-    model::{CreateReq, CreateResp},
-    oauth::{oauth_callback, oauth_start},
-    util::{b64u, epoch_now, resp_json, valid_target},
+    auth::{caller_id, CallerSource},
+    handler::{json_err, Ctx},
+    util::resp_json,
 };
-
-type HmacSha256 = Hmac<Sha256>;
 
 pub(crate) async fn admin_logout(_req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
     let mut builder = Response::builder().status(204);
