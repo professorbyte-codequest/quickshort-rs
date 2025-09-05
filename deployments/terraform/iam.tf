@@ -65,6 +65,30 @@ resource "aws_iam_role_policy_attachment" "lambda_ddb_access" {
   policy_arn = aws_iam_policy.ddb_access.arn
 }
 
+resource "aws_iam_policy" "api_users_ddb" {
+  name = "quickshort-api-users-ddb"
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"],
+        Resource = [
+          aws_dynamodb_table.users.arn,
+          "${aws_dynamodb_table.users.arn}/index/*"
+        ]
+      }
+    ]
+  })
+}
+
+
+resource "aws_iam_role_policy_attachment" "api_users_ddb_attach" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = aws_iam_policy.api_users_ddb.arn
+}
+
+
 resource "aws_iam_role" "cf_logs_role" {
   name = "qs-cf-rt-logs-role"
   assume_role_policy = jsonencode({

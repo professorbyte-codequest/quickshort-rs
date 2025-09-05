@@ -48,3 +48,30 @@ resource "aws_dynamodb_table" "usage" {
 
   point_in_time_recovery { enabled = true }
 }
+
+resource "aws_dynamodb_table" "users" {
+  name         = "quickshort-users"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+
+
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "email"
+    type = "S"
+  }
+
+  # Optional GSI by email (handy for admin lookups / support)
+  global_secondary_index {
+    name               = "GSI1-email"
+    hash_key           = "email"
+    projection_type    = "INCLUDE"
+    non_key_attributes = ["user_id", "plan", "created_at"]
+  }
+
+
+  tags = { app = "quickshort" }
+}

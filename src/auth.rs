@@ -52,28 +52,33 @@ pub struct Caller {
 }
 
 fn caller_from_apigw(req: &Request) -> Option<Caller> {
-        let ctx = match req.request_context_ref()? {
+    let ctx = match req.request_context_ref()? {
         RequestContext::ApiGatewayV2(c) => c,
         _ => return None,
     };
-    
-  let authz = ctx.authorizer.as_ref()?;
+
+    let authz = ctx.authorizer.as_ref()?;
 
     // 1) Custom Lambda authorizer (simple responses): values come as strings in `fields`
     if !authz.fields.is_empty() {
         let fields = &authz.fields; // HashMap<String, String>
-        let sub     = fields.get("sub")?.to_string();
-        let email   = fields.get("email").map(|v| v.to_string());
-        let source  = match fields.get("source").map(|s| s.as_str()).unwrap_or_default() {
+        let sub = fields.get("sub")?.to_string();
+        let email = fields.get("email").map(|v| v.to_string());
+        let source = match fields.get("source").map(|s| s.as_str()).unwrap_or_default() {
             Some("legacy") => CallerSource::AdminCookie,
-        _              => CallerSource::Cognito,
+            _ => CallerSource::Cognito,
         };
         let is_admin = fields
             .get("is_admin")
             .map(|s| s.as_str().unwrap_or_default().eq_ignore_ascii_case("true"))
             .unwrap_or(false);
 
-        return Some(Caller { user_id: sub, email, source, is_admin });
+        return Some(Caller {
+            user_id: sub,
+            email,
+            source,
+            is_admin,
+        });
     }
     None
 }
@@ -81,7 +86,9 @@ fn caller_from_apigw(req: &Request) -> Option<Caller> {
 /// Central entry point: get the caller identity (if any) from the request.
 /// Preference order: Cognito JWT authorizer -> legacy cookie
 pub async fn caller_id(req: &Request) -> Option<Caller> {
-    if let Some(c) = caller_from_apigw(req) { return Some(c); }
+    if let Some(c) = caller_from_apigw(req) {
+        return Some(c);
+    }
 
     // 1) Cognito JWT authorizer (HTTP API v2)
     if let Some(c) = cognito_caller(req) {
@@ -97,6 +104,18 @@ pub async fn caller_id(req: &Request) -> Option<Caller> {
 pub fn err_unauthorized(msg: &str) -> Error {
     // Produce a concrete error type; lambda_http::Error can wrap std::io::Error.
     IoError::new(ErrorKind::PermissionDenied, msg.to_owned()).into()
+}
+
+#[macro_export]
+macro_rules! require_auth_or_return {
+    ($req:expr, $status:expr, $err:expr, $msg:expr) => {
+        match require_auth(&$req).await {
+            Ok(c) => c,
+            Err(_) => {
+                return json_err($status, $err, $msg);
+            }
+        }
+    };
 }
 
 /// Convenience: require auth and return a unified Caller (use in write/admin paths).

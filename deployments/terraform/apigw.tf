@@ -117,4 +117,28 @@ resource "aws_apigatewayv2_route" "links_put" {
   target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+
+# POST /v1/users/ensure (protected)
+resource "aws_apigatewayv2_route" "users_ensure" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "POST /v1/users/ensure"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+
+
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.combined.id
+}
+
+
+# GET /v1/users/me (protected)
+resource "aws_apigatewayv2_route" "users_me" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /v1/users/me"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+
+
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.combined.id
+}
+
 output "api_invoke_url" { value = aws_apigatewayv2_api.http.api_endpoint }

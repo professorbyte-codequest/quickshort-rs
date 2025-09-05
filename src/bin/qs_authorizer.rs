@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
-use quickshort::auth::{verify_legacy_cookie_subject, verify_cognito_id_token, Caller, CallerSource};
+use quickshort::auth::{
+    verify_cognito_id_token, verify_legacy_cookie_subject, Caller, CallerSource,
+};
 
 #[derive(Serialize)]
 struct SimpleAuthz {

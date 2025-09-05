@@ -1,7 +1,11 @@
+mod admin;
+mod api;
 mod auth;
 mod handler;
 mod id;
 mod model;
+mod oauth;
+mod users;
 mod util;
 
 use handler::Ctx;

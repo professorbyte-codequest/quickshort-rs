@@ -15,6 +15,7 @@ resource "aws_lambda_function" "api" {
   environment {
     variables = {
       TABLE_NAME           = aws_dynamodb_table.links.name
+      TABLE_USERS          = aws_dynamodb_table.users.name
       CACHE_MAX_AGE        = 86400
       PUBLIC_DOMAIN        = local.fqdn
       GITHUB_CLIENT_ID     = nonsensitive(data.aws_secretsmanager_secret_version.gh_id.secret_string)
@@ -127,6 +128,7 @@ resource "aws_lambda_function" "authorizer" {
       ADMIN_STATE_KEY      = nonsensitive(data.aws_secretsmanager_secret_version.state_key.secret_string)
       JWT_AUD              = "qs-admin"
       JWT_ISS              = "https://${local.fqdn}"
+      TABLE_USERS          = aws_dynamodb_table.users.name
     }
   }
 }
