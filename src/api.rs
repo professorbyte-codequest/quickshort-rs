@@ -7,14 +7,29 @@ use serde_json::json;
 use crate::{
     auth::{require_auth, Caller},
     handler::{json_err, map_ddb_err, Ctx},
-    id::new_slug,
+    id::{is_reserved_slug, is_valid_custom_slug, new_slug},
+    limits::{enforce_link_create, limit_err_response, LimitsCtx},
     model::{CreateReq, CreateResp},
     require_auth_or_return,
+    users::get_user_plan,
     util::{epoch_now, resp_json, valid_target},
 };
 
 pub(crate) async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
     let caller = require_auth_or_return!(req, 401, "unauthorized", "Requires authentication");
+
+    let plan = get_user_plan(&ctx.ddb, &ctx.table_users, &caller.user_id)
+        .await
+        .unwrap_or("free".to_string());
+
+    // Enforce rate limits
+    let limits_ctx = LimitsCtx {
+        ddb: ctx.ddb.clone(),
+        table_usage: std::env::var("TABLE_USAGE").unwrap(),
+    };
+    if let Err(e) = enforce_link_create(&limits_ctx, &caller, &plan).await {
+        return Ok(limit_err_response(e.0));
+    }
 
     let body_bytes = match req.body() {
         Body::Text(s) => s.as_bytes().to_vec(),
@@ -29,10 +44,35 @@ pub(crate) async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body
         return Ok(resp_json(400, json!({"error":"invalid target"})));
     }
 
+    let allow_custom_slug = caller.is_admin || plan.as_str() != "free";
+    let want_slug = payload
+        .slug
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty());
+
+    let mut final_slug: Option<String> = None;
+    if let Some(s) = want_slug {
+        if allow_custom_slug {
+            if !is_valid_custom_slug(&s) {
+                return json_err(400, "invalid_slug", "slug must match [a-z0-9-]{3,32}");
+            }
+            if is_reserved_slug(&s) {
+                return json_err(400, "reserved_slug", "slug is reserved");
+            }
+            final_slug = Some(s);
+        } // else: ignore client slug for free plan
+    }
+
     let now = epoch_now();
     let mut attempt = 0u32;
-    let slug = match &payload.slug {
-        Some(s) => s.clone(),
+    let slug = match final_slug {
+        Some(s) => {
+            if !try_put(ctx, &s, &payload.target, now, payload.expires_at, &caller).await? {
+                return Ok(resp_json(409, json!({"error":"slug exists"})));
+            }
+
+            s
+        }
         None => loop {
             attempt += 1;
             let candidate = new_slug(&payload.target, now, attempt);
@@ -53,20 +93,6 @@ pub(crate) async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body
             }
         },
     };
-
-    if payload.slug.is_some()
-        && !try_put(
-            ctx,
-            &slug,
-            &payload.target,
-            now,
-            payload.expires_at,
-            &caller,
-        )
-        .await?
-    {
-        return Ok(resp_json(409, json!({"error":"slug exists"})));
-    }
 
     let short = format!("https://{}/{}", ctx.domain, slug);
     let out = CreateResp {

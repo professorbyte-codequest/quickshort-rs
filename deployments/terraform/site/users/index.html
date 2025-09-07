@@ -277,6 +277,8 @@
 
     <script>
       (function () {
+        let userPlan = "free";
+
         const out = (id, text, cls) => {
           const el = document.getElementById(id);
           if (!el) return;
@@ -290,23 +292,28 @@
         async function requireSignedIn() {
           const idt = localStorage.getItem("qs_id_token");
           if (!idt) {
-            location.href = "/auth/signin.html";
+            location.href = "/auth/signin";
             throw new Error("not signed in");
           }
         }
 
         async function loadMe() {
           const r = await QSAuth.qsApi("/v1/users/me");
-          if (r.status === 401) {
-            location.href = "/auth/signin.html";
-            return;
-          }
           if (!r.ok) {
-            out("planName", "unknown");
+            location.href = "/auth/signin";
             return;
           }
           const j = await r.json();
-          out("planName", j.plan || "free");
+          userPlan = j.plan || "free";
+          out("planName", userPlan);
+          const slugRow = document.querySelector(".row .slug").closest(".row");
+          if (userPlan === "free") {
+            // Hide slug input for free users
+            document.getElementById("newSlug").value = "";
+            document.querySelector(".slug").style.display = "none";
+          } else {
+            document.querySelector(".slug").style.display = "";
+          }
         }
 
         function linkRow(item) {
@@ -433,18 +440,16 @@
           }
           btn.disabled = true;
           msg.textContent = "";
+          const body =
+            userPlan === "free" || !slug
+              ? { target_url: url }
+              : { slug: slug, target_url: url };
           try {
-            const resp = slug
-              ? await QSAuth.qsApi("/v1/links", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ slug, target: url }),
-                })
-              : await QSAuth.qsApi("/v1/links", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ target: url }),
-                });
+            const resp = await QSAuth.qsApi("/v1/links", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
             if (!resp.ok) {
               const t = await resp.text();
               throw new Error(`Create failed: ${resp.status} ${t}`);

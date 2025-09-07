@@ -87,7 +87,7 @@
         const r = await QSAuth.qsApi('/v1/admin/me');
         if (r.ok) {
           const j = await r.json();
-          out.textContent = "Hello, " + j.email;
+          out.innerHTML = "Hello, " + j.email + ', you are signed in. Manage your links <a href="/users/index.html">here</a>, or <a href="/auth/signout">sign out</a>';
         } else {
           console.log('me API error', r.status, r.json());
           out.innerHTML = '<a href="/auth/signin">Sign in</a>';

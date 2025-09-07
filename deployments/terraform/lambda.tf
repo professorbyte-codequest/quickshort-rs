@@ -16,6 +16,11 @@ resource "aws_lambda_function" "api" {
     variables = {
       TABLE_NAME           = aws_dynamodb_table.links.name
       TABLE_USERS          = aws_dynamodb_table.users.name
+      TABLE_USAGE                 = aws_dynamodb_table.usage.name
+      FREE_MONTHLY_LINKS          = "50"
+      FREE_TOTAL_LINKS            = "200"
+      FREE_BUCKET_CAPACITY        = "10"
+      FREE_BUCKET_REFILL_PER_SEC  = "0.5"  # 1 token every 2s
       CACHE_MAX_AGE        = 86400
       PUBLIC_DOMAIN        = local.fqdn
       GITHUB_CLIENT_ID     = nonsensitive(data.aws_secretsmanager_secret_version.gh_id.secret_string)

@@ -3,6 +3,35 @@ use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 const ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+pub fn is_valid_custom_slug(s: &str) -> bool {
+    // allow a-z0-9-; 3..=32 chars
+    let ok_len = (3..=32).contains(&s.len());
+    ok_len
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+pub fn is_reserved_slug(s: &str) -> bool {
+    matches!(
+        s,
+        "v1" | "api"
+            | "admin"
+            | "auth"
+            | "login"
+            | "logout"
+            | "signin"
+            | "signup"
+            | "user"
+            | "users"
+            | "docs"
+            | "static"
+            | "health"
+            | "robots.txt"
+            | "favicon.ico"
+            | "index.html"
+    )
+}
+
 pub fn base62(bytes: &[u8], len: usize) -> String {
     // Convert hash bytes to base62 by repeated division; for small len, take modulus stream
     let mut out = String::with_capacity(len);

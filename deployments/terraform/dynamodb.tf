@@ -33,20 +33,26 @@ resource "aws_dynamodb_table" "usage" {
   name         = "quickshort_usage"
   billing_mode = "PAY_PER_REQUEST"
 
-  hash_key  = "pk"
-  range_key = "sk"
-
   attribute {
-    name = "pk"
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "k"
     type = "S"
   }
 
-  attribute {
-    name = "sk"
-    type = "S"
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
   }
+
+  hash_key     = "user_id"
+  range_key    = "k"
 
   point_in_time_recovery { enabled = true }
+
+  tags = { app = "quickshort" }
 }
 
 resource "aws_dynamodb_table" "users" {
