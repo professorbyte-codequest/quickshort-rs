@@ -112,7 +112,7 @@ macro_rules! require_auth_or_return {
         match require_auth(&$req).await {
             Ok(c) => c,
             Err(_) => {
-                return json_err($status, $err, $msg);
+                return Ok(json_err($status, $err, $msg));
             }
         }
     };

@@ -10,8 +10,9 @@ use lambda_http::{Body, Error, Request, Response};
 
 use crate::{
     auth::{require_auth, CallerSource},
-    handler::{json_err, json_ok, Ctx},
+    handler::Ctx,
     require_auth_or_return,
+    util::{json_err, json_ok},
 };
 
 pub async fn get_user_plan(ddb: &ddb::Client, table_users: &str, user_id: &str) -> Option<String> {
@@ -35,16 +36,16 @@ pub async fn ensure_user(req: Request, ctx: &Ctx) -> Result<Response<Body>, Erro
 
     // We don't create "users" for legacy admin cookie callers
     if matches!(caller.source, CallerSource::AdminCookie) {
-        return json_err(
+        return Ok(json_err(
             400,
             "unsupported",
             "Admin cookie auth does not create user accounts",
-        );
+        ));
     }
 
     let table = ctx.table_users.as_str();
     if table.is_empty() {
-        return json_err(500, "config", "TABLE_USERS not set");
+        return Ok(json_err(500, "config", "TABLE_USERS not set"));
     }
 
     let user_id = caller.user_id.clone(); // Cognito sub
@@ -86,7 +87,11 @@ pub async fn ensure_user(req: Request, ctx: &Ctx) -> Result<Response<Body>, Erro
             if code != "ConditionalCheckFailedException" {
                 let msg = e.message().unwrap_or("");
                 tracing::error!(table=%table, err_code=%code, err_msg=%msg, "DDB PutItem failed");
-                return json_err(500, "ddb_put", format!("code={} msg={}", code, msg));
+                return Ok(json_err(
+                    500,
+                    "ddb_put",
+                    format!("code={} msg={}", code, msg),
+                ));
             }
         }
     }
@@ -136,7 +141,11 @@ pub async fn ensure_user(req: Request, ctx: &Ctx) -> Result<Response<Body>, Erro
             let code = e.code().unwrap_or("unknown");
             let msg = e.message().unwrap_or("");
             tracing::error!(table=%table, err_code=%code, err_msg=%msg, "DDB UpdateItem failed");
-            json_err(500, "ddb_update", format!("code={} msg={}", code, msg))
+            Ok(json_err(
+                500,
+                "ddb_update",
+                format!("code={} msg={}", code, msg),
+            ))
         }
     }
 }
@@ -183,9 +192,9 @@ pub(crate) async fn get_me(req: Request, ctx: &Ctx) -> Result<Response<Body>, Er
     }
 
     // Not found – suggest running ensure
-    json_err(
+    Ok(json_err(
         404,
         "not_found",
         "User not registered; call POST /v1/users/ensure after sign-in",
-    )
+    ))
 }

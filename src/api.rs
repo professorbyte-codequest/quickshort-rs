@@ -6,13 +6,15 @@ use serde_json::json;
 
 use crate::{
     auth::{require_auth, Caller},
-    handler::{json_err, map_ddb_err, Ctx},
+    handler::{map_ddb_err, Ctx},
     id::{is_reserved_slug, is_valid_custom_slug, new_slug},
     limits::{enforce_link_create, limit_err_response, LimitsCtx},
     model::{CreateReq, CreateResp},
     require_auth_or_return,
     users::get_user_plan,
-    util::{epoch_now, resp_json, valid_target},
+    util::{
+        epoch_now, json_err, json_ok, json_ok_no_content, json_ok_with_status, validate_target_url,
+    },
 };
 
 pub(crate) async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
@@ -40,9 +42,10 @@ pub(crate) async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body
     let payload: CreateReq =
         serde_json::from_slice(&body_bytes).map_err(|_| Error::from("bad json"))?;
 
-    if !valid_target(&payload.target) {
-        return Ok(resp_json(400, json!({"error":"invalid target"})));
-    }
+    let clean_url = match validate_target_url(&payload.target) {
+        Ok(u) => u,
+        Err(msg) => return Ok(json_err(400, "invalid url", msg)),
+    };
 
     let allow_custom_slug = caller.is_admin || plan.as_str() != "free";
     let want_slug = payload
@@ -54,10 +57,14 @@ pub(crate) async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body
     if let Some(s) = want_slug {
         if allow_custom_slug {
             if !is_valid_custom_slug(&s) {
-                return json_err(400, "invalid_slug", "slug must match [a-z0-9-]{3,32}");
+                return Ok(json_err(
+                    400,
+                    "invalid_slug",
+                    "slug must match [a-z0-9-]{3,32}",
+                ));
             }
             if is_reserved_slug(&s) {
-                return json_err(400, "reserved_slug", "slug is reserved");
+                return Ok(json_err(400, "reserved_slug", "slug is reserved"));
             }
             final_slug = Some(s);
         } // else: ignore client slug for free plan
@@ -67,19 +74,19 @@ pub(crate) async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body
     let mut attempt = 0u32;
     let slug = match final_slug {
         Some(s) => {
-            if !try_put(ctx, &s, &payload.target, now, payload.expires_at, &caller).await? {
-                return Ok(resp_json(409, json!({"error":"slug exists"})));
+            if !try_put(ctx, &s, &clean_url, now, payload.expires_at, &caller).await? {
+                return Ok(json_err(409, "error", "slug exists"));
             }
 
             s
         }
         None => loop {
             attempt += 1;
-            let candidate = new_slug(&payload.target, now, attempt);
+            let candidate = new_slug(&clean_url, now, attempt);
             if try_put(
                 ctx,
                 &candidate,
-                &payload.target,
+                &clean_url,
                 now,
                 payload.expires_at,
                 &caller,
@@ -89,19 +96,19 @@ pub(crate) async fn create_link(req: Request, ctx: &Ctx) -> Result<Response<Body
                 break candidate;
             }
             if attempt > 6 {
-                return Ok(resp_json(500, json!({"error":"exhausted attempts"})));
+                return Ok(json_err(500, "error", "exhausted attempts"));
             }
         },
     };
 
     let short = format!("https://{}/{}", ctx.domain, slug);
     let out = CreateResp {
-        slug: slug.clone(),
+        slug,
         short_url: short,
-        target: payload.target.clone(),
+        target: clean_url,
         expires_at: payload.expires_at,
     };
-    Ok(resp_json(201, serde_json::to_value(out).unwrap()))
+    Ok(json_ok_with_status(json!(out), 201))
 }
 
 async fn try_put(
@@ -226,7 +233,7 @@ pub(crate) async fn update_link(req: Request, ctx: &Ctx) -> Result<Response<Body
     let path = req.uri().path();
     let slug = path.trim_start_matches("/v1/links/");
     if slug.is_empty() {
-        return Ok(resp_json(400, json!({"error":"bad_slug"})));
+        return Ok(json_err(400, "error", "bad slug"));
     }
 
     if !caller.is_admin {
@@ -242,7 +249,7 @@ pub(crate) async fn update_link(req: Request, ctx: &Ctx) -> Result<Response<Body
             .item;
 
         let Some(item) = item else {
-            return json_err(404, "not_found", "Slug not found");
+            return Ok(json_err(404, "error", "not found"));
         };
         let defaut_owner = "system".to_string();
         let owner = item
@@ -250,7 +257,7 @@ pub(crate) async fn update_link(req: Request, ctx: &Ctx) -> Result<Response<Body
             .and_then(|v| v.as_s().ok())
             .unwrap_or(&defaut_owner);
         if owner != &caller.user_id {
-            return json_err(404, "not_found", "Slug not found");
+            return Ok(json_err(404, "error", "not found"));
         }
     }
 
@@ -266,8 +273,12 @@ pub(crate) async fn update_link(req: Request, ctx: &Ctx) -> Result<Response<Body
     let expires_at = v.get("expires_at").and_then(|x| x.as_u64());
 
     if target.is_empty() && expires_at.is_none() {
-        return Ok(resp_json(400, json!({"error":"no_updates"})));
+        return Ok(json_err(400, "error", "no updates provided"));
     }
+    let target = match validate_target_url(&target) {
+        Ok(u) => u,
+        Err(msg) => return Ok(json_err(400, "invalid url", msg)),
+    };
 
     let mut expr = String::from("SET ");
     let mut names = std::collections::HashMap::new();
@@ -304,7 +315,7 @@ pub(crate) async fn update_link(req: Request, ctx: &Ctx) -> Result<Response<Body
         .await
         .map_err(map_ddb_err)?;
 
-    Ok(resp_json(204, json!({})))
+    Ok(json_ok_no_content())
 }
 
 pub(crate) async fn list_links(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
@@ -414,11 +425,11 @@ fn list_response_to_json(
         }
     }
 
-    resp_json(200, out)
+    json_ok(out)
 }
 
 pub(crate) async fn delete_link(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
-    let caller = require_auth_or_return!(req, 404, "not_found", "Slug not found");
+    let caller = require_auth_or_return!(req, 404, "error", "not found");
 
     let slug = req
         .uri()
@@ -426,7 +437,7 @@ pub(crate) async fn delete_link(req: Request, ctx: &Ctx) -> Result<Response<Body
         .trim_start_matches("/v1/links/")
         .to_string();
     if slug.is_empty() {
-        return Ok(resp_json(400, json!({"error":"missing slug"})));
+        return Ok(json_err(400, "error", "bad slug"));
     }
 
     if !caller.is_admin {
@@ -441,14 +452,14 @@ pub(crate) async fn delete_link(req: Request, ctx: &Ctx) -> Result<Response<Body
             .map_err(|e| lambda_http::Error::from(format!("ddb get: {e}")))?
             .item;
         let Some(item) = item else {
-            return json_err(404, "not_found", "Slug not found");
+            return Ok(json_err(404, "error", "not found"));
         };
         let owner = item
             .get("owner_id")
             .and_then(|v| v.as_s().ok())
             .map_or("system", |v| v);
         if owner != caller.user_id {
-            return json_err(404, "not_found", "Slug not found");
+            return Ok(json_err(404, "error", "not found"));
         };
     }
 
@@ -460,5 +471,5 @@ pub(crate) async fn delete_link(req: Request, ctx: &Ctx) -> Result<Response<Body
         .await
         .map_err(|e| Error::from(format!("ddb delete: {:?}", e)))?;
 
-    Ok(Response::builder().status(204).body(Body::Empty).unwrap())
+    Ok(json_ok_no_content())
 }

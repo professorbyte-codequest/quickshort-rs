@@ -2,7 +2,6 @@ use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb as ddb;
 // for .code()
 use lambda_http::{Body, Error, Request, Response};
-use std::borrow::Cow;
 
 use crate::{
     admin::{admin_logout, admin_me},
@@ -88,26 +87,4 @@ pub async fn router(req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
             .body(format!("Redirecting to {}", ctx.domain).into())
             .unwrap()),
     }
-}
-
-pub fn json_err(
-    status: u16,
-    code: &'static str,
-    message: impl Into<Cow<'static, str>>,
-) -> Result<lambda_http::Response<lambda_http::Body>, lambda_http::Error> {
-    use lambda_http::{Body, Response};
-    let payload = serde_json::json!({
-    "error": code,
-    "message": message.into(),
-    });
-    let body = serde_json::to_vec(&payload).map_err(|e| lambda_http::Error::from(e.to_string()))?;
-    Response::builder()
-        .status(status)
-        .header("content-type", "application/json")
-        .body(Body::Binary(body))
-        .map_err(|e| lambda_http::Error::from(format!("resp: {e}")))
-}
-
-pub fn json_ok(v: serde_json::Value) -> Response<Body> {
-    resp_json(200, v)
 }

@@ -3,8 +3,8 @@ use lambda_http::{Body, Error, Request, Response};
 
 use crate::{
     auth::{caller_id, CallerSource},
-    handler::{json_err, Ctx},
-    util::resp_json,
+    handler::Ctx,
+    util::{json_err, json_ok},
 };
 
 pub(crate) async fn admin_logout(_req: Request, ctx: &Ctx) -> Result<Response<Body>, Error> {
@@ -43,8 +43,8 @@ pub(crate) async fn admin_me(req: Request, _ctx: &Ctx) -> Result<Response<Body>,
             "is_admin": c.is_admin,
         });
 
-        return Ok(resp_json(200, body));
+        return Ok(json_ok(body));
     }
 
-    json_err(401, "unauthorized", "Not signed in")
+    Ok(json_err(401, "unauthorized", "Not signed in"))
 }
